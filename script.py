@@ -469,30 +469,6 @@ def _admin_name(entry):
     return f"ID {admin_id}" if admin_id else "-"
 
 
-def _duration_text(start_ts, end_ts, undone=None):
-    if undone:
-        return "снят"
-    if not end_ts:
-        return "неизвестно"
-    if end_ts == 0:
-        return "перманентно"
-    if not start_ts:
-        return "неизвестно"
-    delta = end_ts - start_ts
-    if delta <= 0:
-        return "истёк"
-    days, hours = delta // 86400, (delta % 86400) // 3600
-    minutes = (delta % 3600) // 60
-    parts = []
-    if days:
-        parts.append(f"{days} д.")
-    if hours:
-        parts.append(f"{hours} ч.")
-    if not parts and minutes:
-        parts.append(f"{minutes} мин.")
-    return " ".join(parts) or "мгновенно"
-
-
 def build_activity_bar(hours: float, goal: float = 8.0, length: int = 10) -> str:
     ratio = max(0.0, min(1.0, hours / goal)) if goal > 0 else 0.0
     filled = int(round(ratio * length))
@@ -1609,24 +1585,28 @@ async def export_members(interaction: discord.Interaction):
 @app_commands.describe(member="Участник Discord")
 async def player_info(interaction: discord.Interaction, member: discord.Member):
     await interaction.response.defer(ephemeral=True)
-    profile = await build_player_profile(interaction.guild, member.id)
-    if not profile.get("steamid64"):
-        await interaction.followup.send("❌ У игрока нет SteamID. Сначала `/link`.",
-                                        ephemeral=True)
-        return
+    try:
+        profile = await build_player_profile(interaction.guild, member.id)
+        if not profile.get("steamid64"):
+            await interaction.followup.send("❌ У игрока нет SteamID. Сначала `/link`.",
+                                            ephemeral=True)
+            return
 
-    def _merge(db):
-        old = db.get(profile["steamid64"], {})
-        for k in ("activity", "notes"):
-            if k in old:
-                profile[k] = old[k]
-        profile["activity_hours"] = get_player_activity(profile["steamid64"])
-        db[profile["steamid64"]] = profile
-        return None
-    await players_store.update(_merge)
-    await send_player_report(interaction.client, profile)
-    await interaction.followup.send(f"✅ Профиль отправлен в <#{DB_CHANNEL_ID}>.",
-                                    ephemeral=True)
+        def _merge(db):
+            old = db.get(profile["steamid64"], {})
+            for k in ("activity", "notes"):
+                if k in old:
+                    profile[k] = old[k]
+            profile["activity_hours"] = get_player_activity(profile["steamid64"])
+            db[profile["steamid64"]] = profile
+            return None
+        await players_store.update(_merge)
+        await send_player_report(interaction.client, profile)
+        await interaction.followup.send(f"✅ Профиль отправлен в <#{DB_CHANNEL_ID}>.",
+                                        ephemeral=True)
+    except Exception as e:
+        print(f"⚠️ /player_info: {e}")
+        await interaction.followup.send(f"❌ Ошибка: {e}", ephemeral=True)
 
 
 @bot.tree.command(name="player_note", description="Добавить заметку к профилю игрока")
