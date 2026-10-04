@@ -452,7 +452,6 @@ def is_user_blocked(discord_id: int) -> tuple:
             rem = until - now
             h, m = int(rem.seconds // 3600), int((rem.seconds % 3600) // 60)
             return True, f"🚫 Вам **запрещено** подавать заявки. Через **{h} ч. {m} мин.**" + suffix
-        # истёк — удаляем лениво
         asyncio.ensure_future(bans_store.update(lambda d: d.pop(str(discord_id), None)))
     return False, ""
 
@@ -1365,7 +1364,7 @@ async def _admin_guard(interaction: discord.Interaction) -> bool:
 # ============================================================
 @bot.tree.command(name="link", description="Привязать свой Discord к SteamID")
 @app_commands.describe(steam_id="Твой SteamID64 (17 цифр)")
-@app_commands.checks.cooldown(1, 30)  # защита от перебора/абьюза
+@app_commands.checks.cooldown(1, 30)
 async def link(interaction: discord.Interaction, steam_id: str):
     if not (steam_id.isdigit() and len(steam_id) == 17 and steam_id.startswith("7656119")):
         await interaction.response.send_message("❌ Неверный SteamID.", ephemeral=True)
@@ -1467,15 +1466,15 @@ async def linked_member_autocomplete(
             continue
         search = current.lower()
         if search and search not in member.display_name.lower() and search not in steam_id:
-            continue        choices.append(
+            continue
+        choices.append(
             app_commands.Choice(
                 name=f"{member.display_name} | {steam_id}",
                 value=str(member.id),
             )
         )
         if len(choices) >= 25:
-            break
-    return choices
+            break    return choices
 
 
 async def _check_single_punishment(
