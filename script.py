@@ -1,22 +1,26 @@
 """
-Quantum - бот клана (финальная версия под LLM7.io, без Groq)
+Quantum - бот клана (v3: улучшения из ИИ-отчёта)
 - HTTP-сервер для Render
-- /link, /unlink, /ping, /ai — публичные
-- /ai — ИИ через LLM7.io
+- /link, /unlink, /ping, /ai, /ai_reset
+- /ai — ИИ через LLM7.io (без Groq), вариативные фразы, кулдаун
 - /check_bans, /check_mutes — автодополнение по привязанным
 - Парсинг HTML cs2red.ru для банов/мутов
-- Автосинхронизация ролей, проверка наказаний, трекер активности
+- Автосинхронизация ролей (15 мин), проверка наказаний, трекер активности
 - Ежечасный ИИ-анализ работы бота в отдельный канал
+- Логирование ошибок в файл + отдельный канал
+- Мониторинг активности /ai
 """
 import os
 import re
 import json
 import time
+import random
 import asyncio
 import datetime
 import platform
 import sys
 import threading
+import traceback
 from pathlib import Path
 from collections import defaultdict, deque
 
@@ -65,6 +69,9 @@ APPLICATIONS_CHANNEL_ID = 1511463623703265361
 THREADS_CHANNEL_ID = 1236678127778795660
 DB_CHANNEL_ID = 1554883485834149888
 
+# Улучшение №4 — отдельный канал для ошибок (fallback на лог-канал)
+ERROR_LOG_CHANNEL_ID = int(os.getenv("ERROR_LOG_CHANNEL_ID", str(LOG_CHANNEL_ID)))
+
 ALLOWED_ROLE_ID = int(os.getenv("ALLOWED_ROLE_ID", "0"))
 REVIEWER_ROLE_ID_2 = 1554631801937600603
 SPAM_VOTE_ROLE_ID = 1396606001188175922
@@ -99,6 +106,8 @@ AI_CHAT_HISTORY_SIZE = 6
 AI_CHAT_MAX_TOKENS = 500
 AI_CHAT_TIMEOUT = 25
 AI_CHAT_MODEL = "fast"
+# Улучшение №3 — кулдаун на /ai
+AI_CHAT_COOLDOWN_SEC = int(os.getenv("AI_CHAT_COOLDOWN_SEC", "5"))
 
 BOT_START_TIME = time.time()
 
@@ -139,13 +148,40 @@ CLAN_ROLE_MAP = {
     133: 1555183874605056080,
 }
 
-SYNC_INTERVAL_MINUTES = 5
+# Улучшение №1 — увеличено с 5 до 15 минут
+SYNC_INTERVAL_MINUTES = int(os.getenv("SYNC_INTERVAL_MINUTES", "15"))
 BAN_CHECK_INTERVAL_HOURS = 24
 MUTE_CHECK_INTERVAL_HOURS = 2
 REQUEST_DELAY = 1.0
 
 ACTIVITY_TRACK_SECONDS = 60
 CLANS_CACHE_TTL = 300
+
+# Улучшение №2 — вариативные фразы для /ai
+AI_THINKING_PHRASES = [
+    "⏳ Думаю…",
+    "🤔 Секунду…",
+    "💭 Подбираю ответ…",
+    "✍️ Формулирую…",
+    "🔍 Ищу ответ…",
+    "🧠 Обрабатываю…",
+    "⏱ Уже отвечаю…",
+]
+
+AI_CHAT_SYSTEM_PROMPTS = [
+    ("Ты — дружелюбный и полезный ИИ-помощник Discord-сервера клана "
+     f"{CLAN_NAME}. Отвечай кратко, по делу, на русском языке. "
+     "Если пользователь пишет на другом языке — отвечай на его языке. "
+     "Не выдумывай факты. Можно использовать markdown."),
+    (f"Ты — ИИ-ассистент игрового клана {CLAN_NAME}. Помогаешь участникам "
+     "Discord: отвечаешь на вопросы, объясняешь, подсказываешь. "
+     "Стиль — дружелюбный, но без воды. Язык ответа — как у вопроса. "
+     "Markdown разрешён."),
+    ("Ты — сдержанный ИИ-помощник в Discord. Отвечай по существу, "
+     "не выдумывай. Если чего-то не знаешь — честно скажи. "
+     "Используй русский или язык собеседника. Форматируй ответы "
+     "markdown-ом, если это уместно."),
+]
 
 
 # ============================================================
@@ -197,6 +233,49 @@ bans_store = JsonStore(data_path("users_db.json"), dict)
 moders_store = JsonStore(data_path("moderators.json"), list)
 votes_store = JsonStore(data_path("votes.json"), dict)
 seen_store = JsonStore(data_path("seen.json"), dict)
+# Улучшение №3 — статистика /ai
+ai_stats_store = JsonStore(data_path("ai_stats.json"), dict)
+
+
+# ============================================================
+# УЛУЧШЕНИЕ №4 — ЛОГИРОВАНИЕ ОШИБОК
+# ============================================================
+_error_log_lock = asyncio.Lock()
+
+
+def _write_error_to_file(context: str, exc):
+    """Пишет ошибку в error_log.txt рядом с ботом."""
+    try:
+        ts = now_utc().strftime("%Y-%m-%d %H:%M:%S")
+        if isinstance(exc, BaseException):
+            tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        else:
+            tb = str(exc)
+        with open(data_path("error_log.txt"), "a", encoding="utf-8") as f:
+            f.write(f"[{ts}] {context}\n{tb}\n{'=' * 60}\n")
+    except Exception as e:
+        print(f"⚠️ error_log: {e}")
+
+
+async def log_error(bot: commands.Bot, context: str, exc):
+    """Пишет ошибку в файл и в канал ошибок."""
+    _write_error_to_file(context, exc)
+    print(f"❌ [{context}] {exc}")
+
+    channel = bot.get_channel(ERROR_LOG_CHANNEL_ID)
+    if channel is None:
+        return
+    if isinstance(exc, BaseException):
+        text = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    else:
+        text = str(exc)
+    try:
+        await channel.send(
+            f"❌ **Ошибка**\n**Контекст:** `{context}`\n"
+            f"```\n{text[:1500]}\n```"
+        )
+    except Exception as e:
+        print(f"⚠️ Не смог отправить лог ошибки: {e}")
 
 
 # ============================================================
@@ -230,7 +309,7 @@ class API:
                     r.raise_for_status()
                     return await r.json(content_type=None)
             except Exception as e:
-                print(f"⚠️ GET {url}: {e}")
+                await log_error(bot, f"GET {url}", e)
                 return None
 
     async def _get_html(self, url):
@@ -240,11 +319,11 @@ class API:
             try:
                 async with self.session.get(url) as r:
                     if r.status != 200:
-                        print(f"⚠️ GET {url}: статус {r.status}")
+                        await log_error(bot, f"GET {url}", f"статус {r.status}")
                         return None
                     return await r.text()
             except Exception as e:
-                print(f"⚠️ GET {url}: {e}")
+                await log_error(bot, f"GET {url}", e)
                 return None
 
     async def cs2red_user(self, steam_id: str):
@@ -413,18 +492,18 @@ class LLM7Client:
                         self._last_call = time.time()
 
                         if r.status == 429:
-                            print("⚠️ LLM7: rate-limit (429)")
+                            await log_error(bot, "LLM7", "rate-limit (429)")
                             return None
                         if r.status != 200:
                             body = await r.text()
-                            print(f"⚠️ LLM7: статус {r.status}: {body[:200]}")
+                            await log_error(bot, "LLM7", f"статус {r.status}: {body[:200]}")
                             return None
 
                         data = await r.json(content_type=None)
                         try:
                             return data["choices"][0]["message"]["content"]
                         except (KeyError, IndexError, TypeError):
-                            print(f"⚠️ LLM7: неожиданный ответ: {str(data)[:200]}")
+                            await log_error(bot, "LLM7", f"неожиданный ответ: {str(data)[:200]}")
                             return None
                 except asyncio.TimeoutError:
                     print(f"⚠️ LLM7: таймаут {use_timeout} сек (попытка {attempt})")
@@ -432,7 +511,7 @@ class LLM7Client:
                         return None
                 except Exception as e:
                     self._last_call = time.time()
-                    print(f"⚠️ LLM7: ошибка запроса: {e}")
+                    await log_error(bot, "LLM7.chat", e)
                     return None
         return None
 
@@ -455,12 +534,34 @@ async def ai_chat_with_fallback(prompt, system=None, history=None,
 
 
 # ============================================================
-# ПАМЯТЬ ДИАЛОГА /ai
+# ПАМЯТЬ ДИАЛОГА /ai + КУЛДАУН
 # ============================================================
 ai_chat_history: dict[int, deque] = defaultdict(
     lambda: deque(maxlen=AI_CHAT_HISTORY_SIZE)
 )
 ai_chat_locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
+ai_last_call_by_user: dict[int, float] = {}
+
+
+# ============================================================
+# УЛУЧШЕНИЕ №3 — СТАТИСТИКА /ai
+# ============================================================
+async def track_ai_usage(user_id: int, channel_id: int, ok: bool):
+    ts = now_utc().isoformat()
+
+    def _upd(d):
+        d["total"] = int(d.get("total", 0)) + 1
+        if ok:
+            d["success"] = int(d.get("success", 0)) + 1
+        else:
+            d["fail"] = int(d.get("fail", 0)) + 1
+        d["last_at"] = ts
+        d["last_user"] = str(user_id)
+        d["last_channel"] = str(channel_id)
+        users = d.setdefault("users", {})
+        users[str(user_id)] = int(users.get(str(user_id), 0)) + 1
+        d["users"] = dict(sorted(users.items(), key=lambda kv: kv[1], reverse=True)[:20])
+    await ai_stats_store.update(_upd)
 
 
 # ============================================================
@@ -472,7 +573,7 @@ async def check_punishment_via_html(steam_id: str, kind: str) -> bool:
 
     html = await api._get_html(url)
     if not html:
-        print(f"⚠️ [{kind}] Не удалось получить HTML с {url}")
+        await log_error(bot, f"punishment[{kind}]", f"HTML с {url} не получен")
         return False
 
     soup = BeautifulSoup(html, "html.parser")
@@ -697,7 +798,7 @@ async def build_player_profile(guild: discord.Guild, discord_id: int,
 async def send_player_report(bot: commands.Bot, profile: dict):
     channel = bot.get_channel(DB_CHANNEL_ID)
     if not channel:
-        print(f"⚠️ Канал {DB_CHANNEL_ID} не найден.")
+        await log_error(bot, "send_player_report", f"Канал {DB_CHANNEL_ID} не найден")
         return
     embed = discord.Embed(title="👤 Профиль игрока", color=0x2B2D31,
                           timestamp=now_utc())
@@ -769,7 +870,7 @@ async def send_player_report(bot: commands.Bot, profile: dict):
     try:
         await channel.send(embed=embed)
     except Exception as e:
-        print(f"⚠️ Не удалось отправить отчёт: {e}")
+        await log_error(bot, "send_player_report.send", e)
 
 
 # ============================================================
@@ -916,6 +1017,8 @@ async def check_punishment_roles(bot: commands.Bot, guild: discord.Guild,
                 f"👤 Игрок: {member.mention}\n🎭 Роль: {role.mention}\n🕒 {utc_stamp()} (UTC)")
         except discord.Forbidden:
             actions.append(f"❌ Нет прав для {member.display_name}")
+        except Exception as e:
+            await log_error(bot, f"check_punishment_roles:{kind}", e)
         await asyncio.sleep(REQUEST_DELAY)
     return actions
 
@@ -952,7 +1055,7 @@ async def close_application_thread(thread: discord.Thread,
                     pass
         print(f"✅ Ветка {thread.name} закрыта ({reason})")
     except Exception as e:
-        print(f"⚠️ Ошибка закрытия ветки: {e}")
+        await log_error(bot, "close_application_thread", e)
 
 
 # ============================================================
@@ -1283,7 +1386,7 @@ class QuestionnaireModal(discord.ui.Modal, title="Заявка в клан"):
                     f"🔔 **Новая заявка**\n👤 Игрок: {interaction.user.mention}\n"
                     f"🎮 Ник: {self.nickname.value}\n🕒 {utc_stamp()} (UTC)")
             except Exception as e:
-                print(f"⚠️ Канал заявок: {e}")
+                await log_error(bot, "questionnaire.send", e)
 
         await interaction.followup.send("✅ Ваша заявка отправлена на рассмотрение!",
                                         ephemeral=True)
@@ -1321,9 +1424,9 @@ async def _create_application_thread(interaction: discord.Interaction, embed: di
             view.update_labels(msg.id)
             await msg.edit(view=view)
         except Exception as e:
-            print(f"⚠️ Ветка: {e}")
+            await log_error(bot, "_create_application_thread.send", e)
     except Exception as e:
-        print(f"⚠️ Ошибка создания ветки: {e}")
+        await log_error(bot, "_create_application_thread", e)
 
 
 class ClanSelect(discord.ui.Select):
@@ -1347,7 +1450,7 @@ class ClanView(discord.ui.View):
 # ============================================================
 # БОТ
 # ============================================================
-PUBLIC_COMMANDS = {"link", "unlink", "ping", "ai"}
+PUBLIC_COMMANDS = {"link", "unlink", "ping", "ai", "ai_reset"}
 
 
 class MyBot(commands.Bot):
@@ -1403,7 +1506,7 @@ async def on_app_command_error(interaction: discord.Interaction,
         except Exception:
             pass
         return
-    print(f"⚠️ Ошибка команды {interaction.command}: {error}")
+    await log_error(interaction.client, f"cmd:{interaction.command}", error)
 
 
 @bot.event
@@ -1472,7 +1575,7 @@ async def link(interaction: discord.Interaction, steam_id: str):
         clan_status = await sync_clan_role_by_id(interaction.guild, interaction.user, steam_id)
         await log_to_channel(interaction.client, f"🔗 /link - {status}\n{clan_status}")
     except Exception as e:
-        print(f"⚠️ /link: {e}")
+        await log_error(interaction.client, "/link", e)
 
 
 @bot.tree.command(name="unlink", description="Отвязать свой Discord от SteamID")
@@ -1726,7 +1829,7 @@ async def player_info(interaction: discord.Interaction, member: discord.Member):
         await interaction.followup.send(f"✅ Профиль отправлен в <#{DB_CHANNEL_ID}>.",
                                         ephemeral=True)
     except Exception as e:
-        print(f"⚠️ /player_info: {e}")
+        await log_error(interaction.client, "/player_info", e)
         await interaction.followup.send(f"❌ Ошибка: {e}", ephemeral=True)
 
 
@@ -1808,11 +1911,10 @@ async def lookup(interaction: discord.Interaction, member: discord.Member):
 
 
 # ============================================================
-# /ping — максимально быстрый
+# /ping
 # ============================================================
 @bot.tree.command(name="ping", description="Проверить, жив ли бот")
 async def ping(interaction: discord.Interaction):
-    # ⚠️ defer ПЕРВОЙ строкой, без замеров перед ним — иначе 10062
     await interaction.response.defer(thinking=False)
 
     ws_latency_ms = bot.latency * 1000
@@ -1848,16 +1950,8 @@ async def ping(interaction: discord.Interaction):
 
 
 # ============================================================
-# /ai — ИИ в любом канале
+# /ai — ИИ в любом канале (с вариативностью и кулдауном)
 # ============================================================
-AI_CHAT_SYSTEM_PROMPT = (
-    "Ты — дружелюбный и полезный ИИ-помощник Discord-сервера клана "
-    f"{CLAN_NAME}. Отвечай кратко, по делу, на русском языке. "
-    "Если пользователь пишет на другом языке — отвечай на его языке. "
-    "Не выдумывай факты. Можно использовать markdown."
-)
-
-
 @bot.tree.command(name="ai", description="Спросить у ИИ (работает в любом канале)")
 @app_commands.describe(
     prompt="Ваш вопрос или запрос",
@@ -1866,8 +1960,15 @@ AI_CHAT_SYSTEM_PROMPT = (
 )
 async def ai(interaction: discord.Interaction, prompt: str,
              reset: bool = False, long: bool = False):
-    # ⚠️ defer ПЕРВОЙ строкой, иначе 10062
     await interaction.response.defer(thinking=True)
+
+    # Улучшение №3 — кулдаун для одного пользователя
+    last = ai_last_call_by_user.get(interaction.user.id, 0.0)
+    if not long and time.time() - last < AI_CHAT_COOLDOWN_SEC:
+        await interaction.followup.send(
+            f"⏱ Подождите {AI_CHAT_COOLDOWN_SEC} сек. между запросами.", ephemeral=True)
+        return
+    ai_last_call_by_user[interaction.user.id] = time.time()
 
     channel_id = interaction.channel_id
 
@@ -1893,16 +1994,18 @@ async def ai(interaction: discord.Interaction, prompt: str,
         timeout = AI_CHAT_TIMEOUT
         model = AI_CHAT_MODEL
 
+    # Улучшение №2 — случайная фраза «Думаю…»
     thinking_msg = None
     try:
-        thinking_msg = await interaction.followup.send("⏳ Думаю…")
+        thinking_msg = await interaction.followup.send(random.choice(AI_THINKING_PHRASES))
     except Exception:
         pass
 
     async with ai_chat_locks[channel_id]:
+        # Улучшение №2 — случайный системный промпт
         answer, source = await ai_chat_with_fallback(
             prompt=prompt,
-            system=AI_CHAT_SYSTEM_PROMPT,
+            system=random.choice(AI_CHAT_SYSTEM_PROMPTS),
             history=history_snapshot,
             model=model,
             max_tokens=max_tokens,
@@ -1920,6 +2023,8 @@ async def ai(interaction: discord.Interaction, prompt: str,
                 f"⚠️ ИИ не ответил за {timeout} сек. "
                 f"Попробуйте позже или используйте `/ai long: True`."
             )
+            # Улучшение №3 — фиксируем неудачу
+            await track_ai_usage(interaction.user.id, channel_id, False)
             return
 
         hist = ai_chat_history[channel_id]
@@ -1931,6 +2036,9 @@ async def ai(interaction: discord.Interaction, prompt: str,
             await thinking_msg.delete()
         except Exception:
             pass
+
+    # Улучшение №3 — фиксируем успех
+    await track_ai_usage(interaction.user.id, channel_id, True)
 
     chunks = [answer[i:i + 1900] for i in range(0, len(answer), 1900)] or ["(пустой ответ)"]
     header = f"**{interaction.user.display_name} → /ai**\n"
@@ -1945,7 +2053,14 @@ async def ai(interaction: discord.Interaction, prompt: str,
     except discord.Forbidden:
         await interaction.followup.send("❌ Нет прав для отправки ответа.", ephemeral=True)
     except Exception as e:
-        print(f"⚠️ /ai: ошибка отправки: {e}")
+        await log_error(interaction.client, "/ai.send", e)
+
+
+@bot.tree.command(name="ai_reset", description="Сбросить историю диалога /ai в этом канале")
+async def ai_reset(interaction: discord.Interaction):
+    ai_chat_history.pop(interaction.channel_id, None)
+    await interaction.response.send_message("🧹 История диалога /ai в этом канале очищена.",
+                                            ephemeral=False)
 
 
 # ============================================================
@@ -2175,62 +2290,65 @@ async def setup(ctx):
 
 
 # ============================================================
-# ФОНОВЫЕ ЗАДАЧИ
+# ФОНОВЫЕ ЗАДАЧИ (с логированием ошибок)
 # ============================================================
 @tasks.loop(seconds=ACTIVITY_TRACK_SECONDS)
 async def activity_tracker():
-    links = links_store.read()
-    if not links:
-        return
-    online = await api.server_times()
-    if not online:
-        return
-    db = players_store.read()
-    nick_to_steam = {p.get("cs2red_nick"): sid
-                     for sid, p in db.items() if p.get("cs2red_nick")}
-    last_seen = seen_store.read()
+    try:
+        links = links_store.read()
+        if not links:
+            return
+        online = await api.server_times()
+        if not online:
+            return
+        db = players_store.read()
+        nick_to_steam = {p.get("cs2red_nick"): sid
+                         for sid, p in db.items() if p.get("cs2red_nick")}
+        last_seen = seen_store.read()
 
-    seeded = last_seen.pop("_seeded", None)
-    if not seeded:
-        for sid in links.values():
-            if sid in nick_to_steam:
+        seeded = last_seen.pop("_seeded", None)
+        if not seeded:
+            for sid in links.values():
+                if sid in nick_to_steam:
+                    continue
+                u = await api.cs2red_user(sid)
+                if u and u.get("nick"):
+                    nick_to_steam[u["nick"]] = sid
+                    db.setdefault(sid, {})["cs2red_nick"] = u["nick"]
+            await players_store.save(db)
+
+        now = now_utc().isoformat()
+        matched = 0
+        for nick, secs in online.items():
+            steam_id = nick_to_steam.get(nick)
+            if not steam_id:
                 continue
-            u = await api.cs2red_user(sid)
-            if u and u.get("nick"):
-                nick_to_steam[u["nick"]] = sid
-                db.setdefault(sid, {})["cs2red_nick"] = u["nick"]
-        await players_store.save(db)
-
-    now = now_utc().isoformat()
-    matched = 0
-    for nick, secs in online.items():
-        steam_id = nick_to_steam.get(nick)
-        if not steam_id:
-            continue
-        prev = last_seen.get(nick)
-        if prev is not None and secs >= prev:
-            delta = secs - prev
-        elif prev is not None:
-            delta = min(secs, ACTIVITY_TRACK_SECONDS * 1.5)
-        else:
-            delta = 0.0
-        last_seen[nick] = secs
-        if delta <= 0:
-            continue
-        profile = db.get(steam_id, {})
-        activity = profile.get("activity", {})
-        if not isinstance(activity, dict):
-            activity = {}
-        activity["AUTO"] = float(activity.get("AUTO", 0)) + delta / 3600.0
-        profile.update(activity=activity, discord_name=profile.get("discord_name") or nick,
-                       updated_at=now)
-        db[steam_id] = profile
-        matched += 1
-    last_seen["_seeded"] = True
-    if matched:
-        await players_store.save(db)
-        print(f"🕐 Трекер: +{matched} онлайн-игроков, время обновлено.")
-    await seen_store.save(last_seen)
+            prev = last_seen.get(nick)
+            if prev is not None and secs >= prev:
+                delta = secs - prev
+            elif prev is not None:
+                delta = min(secs, ACTIVITY_TRACK_SECONDS * 1.5)
+            else:
+                delta = 0.0
+            last_seen[nick] = secs
+            if delta <= 0:
+                continue
+            profile = db.get(steam_id, {})
+            activity = profile.get("activity", {})
+            if not isinstance(activity, dict):
+                activity = {}
+            activity["AUTO"] = float(activity.get("AUTO", 0)) + delta / 3600.0
+            profile.update(activity=activity, discord_name=profile.get("discord_name") or nick,
+                           updated_at=now)
+            db[steam_id] = profile
+            matched += 1
+        last_seen["_seeded"] = True
+        if matched:
+            await players_store.save(db)
+            print(f"🕐 Трекер: +{matched} онлайн-игроков, время обновлено.")
+        await seen_store.save(last_seen)
+    except Exception as e:
+        await log_error(bot, "activity_tracker", e)
 
 
 @activity_tracker.before_loop
@@ -2240,62 +2358,71 @@ async def before_activity_tracker():
 
 @tasks.loop(minutes=SYNC_INTERVAL_MINUTES)
 async def auto_sync():
-    print(f"\n⏰ Автосинхронизация - {now_utc().isoformat()}")
-    links = links_store.read()
-    guild = bot.get_guild(GUILD_ID)
-    if not links or guild is None:
-        return
-    results = []
-    for discord_id, steam_id in links.items():
-        member = guild.get_member(int(discord_id))
-        if member is None:
-            continue
-        try:
-            results.append(await sync_role_by_id(guild, member, steam_id))
-            results.append(await sync_clan_role_by_id(guild, member, steam_id))
-        except Exception as e:
-            print(f"⚠️ auto_sync {discord_id}: {e}")
-        await asyncio.sleep(REQUEST_DELAY)
-    changes = [r for r in results if r.startswith(("✅", "🔄", "👥"))]
-    if changes:
-        await log_to_channel(bot, "⏰ **Автосинхронизация**\n" + "\n".join(changes[:30]))
+    try:
+        print(f"\n⏰ Автосинхронизация - {now_utc().isoformat()}")
+        links = links_store.read()
+        guild = bot.get_guild(GUILD_ID)
+        if not links or guild is None:
+            return
+        results = []
+        for discord_id, steam_id in links.items():
+            member = guild.get_member(int(discord_id))
+            if member is None:
+                continue
+            try:
+                results.append(await sync_role_by_id(guild, member, steam_id))
+                results.append(await sync_clan_role_by_id(guild, member, steam_id))
+            except Exception as e:
+                await log_error(bot, f"auto_sync:{discord_id}", e)
+            await asyncio.sleep(REQUEST_DELAY)
+        changes = [r for r in results if r.startswith(("✅", "🔄", "👥"))]
+        if changes:
+            await log_to_channel(bot, "⏰ **Автосинхронизация**\n" + "\n".join(changes[:30]))
+    except Exception as e:
+        await log_error(bot, "auto_sync", e)
 
 
 @auto_sync.error
 async def auto_sync_error(error):
-    print(f"⚠️ auto_sync упал: {error}")
+    await log_error(bot, "auto_sync.error", error)
 
 
 @tasks.loop(hours=BAN_CHECK_INTERVAL_HOURS)
 async def ban_check():
-    print(f"\n🔨 Проверка банов - {now_utc().isoformat()}")
-    guild = bot.get_guild(GUILD_ID)
-    if guild is None:
-        return
-    actions = await check_punishment_roles(bot, guild, "ban")
-    if actions:
-        await log_to_channel(bot, "🔨 **Проверка банов:**\n" + "\n".join(actions))
+    try:
+        print(f"\n🔨 Проверка банов - {now_utc().isoformat()}")
+        guild = bot.get_guild(GUILD_ID)
+        if guild is None:
+            return
+        actions = await check_punishment_roles(bot, guild, "ban")
+        if actions:
+            await log_to_channel(bot, "🔨 **Проверка банов:**\n" + "\n".join(actions))
+    except Exception as e:
+        await log_error(bot, "ban_check", e)
 
 
 @ban_check.error
 async def ban_check_error(error):
-    print(f"⚠️ ban_check упал: {error}")
+    await log_error(bot, "ban_check.error", error)
 
 
 @tasks.loop(hours=MUTE_CHECK_INTERVAL_HOURS)
 async def mute_check():
-    print(f"\n🔇 Проверка мутов - {now_utc().isoformat()}")
-    guild = bot.get_guild(GUILD_ID)
-    if guild is None:
-        return
-    actions = await check_punishment_roles(bot, guild, "mute")
-    if actions:
-        await log_to_channel(bot, "🔇 **Проверка мутов:**\n" + "\n".join(actions))
+    try:
+        print(f"\n🔇 Проверка мутов - {now_utc().isoformat()}")
+        guild = bot.get_guild(GUILD_ID)
+        if guild is None:
+            return
+        actions = await check_punishment_roles(bot, guild, "mute")
+        if actions:
+            await log_to_channel(bot, "🔇 **Проверка мутов:**\n" + "\n".join(actions))
+    except Exception as e:
+        await log_error(bot, "mute_check", e)
 
 
 @mute_check.error
 async def mute_check_error(error):
-    print(f"⚠️ mute_check упал: {error}")
+    await log_error(bot, "mute_check.error", error)
 
 
 async def _align_to_half_hour(minutes: int):
@@ -2327,10 +2454,14 @@ mute_check.before_loop(before_mute_check)
 @auto_sync.before_loop
 async def before_auto_sync():
     await bot.wait_until_ready()
+    # Улучшение №1 — джиттер, чтобы задачи не совпадали
+    delay = random.randint(0, 120)
+    print(f"⏰ auto_sync: старт через {delay} сек.")
+    await asyncio.sleep(delay)
 
 
 # ============================================================
-# ИИ-АНАЛИЗ РАЗ В ЧАС
+# ИИ-АНАЛИЗ РАЗ В ЧАС (со статистикой /ai)
 # ============================================================
 AI_SYSTEM_PROMPT = (
     "Ты — технический аналитик Discord-бота. Тебе дают метрики работы "
@@ -2350,6 +2481,7 @@ def _collect_runtime_stats() -> dict:
     bans = bans_store.read()
     moders = moders_store.read()
     votes = votes_store.read()
+    ai_st = ai_stats_store.read()
 
     now = now_utc()
     active_temp_bans = 0
@@ -2398,6 +2530,10 @@ def _collect_runtime_stats() -> dict:
         "perm_bans": perm_bans,
         "active_temp_bans": active_temp_bans,
         "ai_channels_with_history": len(ai_chat_history),
+        # Улучшение №3 — статистика /ai
+        "ai_total": int(ai_st.get("total", 0)),
+        "ai_success": int(ai_st.get("success", 0)),
+        "ai_fail": int(ai_st.get("fail", 0)),
         "tasks_running": {
             "auto_sync": auto_sync.is_running(),
             "ban_check": ban_check.is_running(),
@@ -2429,6 +2565,7 @@ def _build_ai_prompt(stats: dict, prev_report: str | None = None) -> str:
         f"Перм. запретов: {stats['perm_bans']}",
         f"Активных временных: {stats['active_temp_bans']}",
         f"Каналов с историей /ai: {stats['ai_channels_with_history']}",
+        f"Запросов /ai: {stats['ai_total']} (ok {stats['ai_success']}, fail {stats['ai_fail']})",
         "",
         "=== ФОНОВЫЕ ЗАДАЧИ ===",
     ]
@@ -2476,7 +2613,7 @@ async def _run_ai_analysis_once() -> str | None:
 
     channel = bot.get_channel(AI_REPORT_CHANNEL_ID)
     if channel is None:
-        print(f"⚠️ Канал отчётов ИИ {AI_REPORT_CHANNEL_ID} не найден.")
+        await log_error(bot, "ai_report", f"Канал {AI_REPORT_CHANNEL_ID} не найден")
         return None
 
     if answer is None:
@@ -2504,8 +2641,9 @@ async def _run_ai_analysis_once() -> str | None:
     embed.add_field(name="🚫 Запретов",
                     value=f"`perm: {stats['perm_bans']} / temp: {stats['active_temp_bans']}`",
                     inline=True)
-    embed.add_field(name="📊 Часов активности",
-                    value=f"`{stats['total_tracked_hours']}`", inline=True)
+    embed.add_field(name="🤖 /ai",
+                    value=f"`{stats['ai_success']}/{stats['ai_fail']}`",
+                    inline=True)
 
     if bot.user:
         embed.set_footer(text=f"Quantum AI Monitor • {utc_stamp()} (UTC)",
@@ -2514,7 +2652,7 @@ async def _run_ai_analysis_once() -> str | None:
     try:
         await channel.send(embed=embed)
     except Exception as e:
-        print(f"⚠️ Не удалось отправить ИИ-отчёт: {e}")
+        await log_error(bot, "ai_report.send", e)
         return None
 
     if answer:
@@ -2527,11 +2665,11 @@ async def _run_ai_analysis_once() -> str | None:
 
 @tasks.loop(minutes=AI_ANALYSIS_INTERVAL_MINUTES)
 async def ai_script_analysis():
-    print(f"\n🤖 ИИ-анализ бота - {now_utc().isoformat()}")
     try:
+        print(f"\n🤖 ИИ-анализ бота - {now_utc().isoformat()}")
         await _run_ai_analysis_once()
     except Exception as e:
-        print(f"⚠️ ai_script_analysis упал: {e}")
+        await log_error(bot, "ai_script_analysis", e)
 
 
 @ai_script_analysis.before_loop
@@ -2542,7 +2680,7 @@ async def before_ai_script_analysis():
 
 @ai_script_analysis.error
 async def ai_script_analysis_error(error):
-    print(f"⚠️ ai_script_analysis ошибка: {error}")
+    await log_error(bot, "ai_script_analysis.error", error)
 
 
 @bot.tree.command(name="ai_report", description="Запустить ИИ-анализ бота вручную")
