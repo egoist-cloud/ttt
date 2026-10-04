@@ -8,6 +8,7 @@ Quantum — бот клана (оптимизированная версия)
 - /unlink теперь снимает и клановые роли
 - /link не даёт привязать один SteamID к нескольким Discord
 - last_seen трекера активности переживает перезапуск
++ HTTP-сервер для прохождения проверки работоспособности на Render
 """
 import os
 import re
@@ -15,6 +16,7 @@ import json
 import asyncio
 import datetime
 import sys
+import threading
 from pathlib import Path
 
 import aiohttp
@@ -22,6 +24,7 @@ import discord
 from discord.ext import commands, tasks
 from discord import app_commands
 from dotenv import load_dotenv
+from flask import Flask
 
 # Windows-консоль: не даём print с эмодзи уронить бота (cp1252 не умеет ✅ и т.п.)
 if hasattr(sys.stdout, "reconfigure"):
@@ -33,7 +36,7 @@ load_dotenv()
 
 # ------------------------------------------------------------
 # ПАПКА ДАННЫХ
-# Локально — рядом со скриптом; на хостинге (Amvera) задаётся DATA_DIR=/data —
+# Локально — рядом со скриптом; на хостинге (Render) задаётся DATA_DIR=/data —
 # это постоянный диск, который НЕ стирается при пересборке проекта.
 # Все JSON-файлы состояния должны лежать только здесь.
 # ------------------------------------------------------------
@@ -2022,6 +2025,20 @@ async def before_auto_sync():
 
 
 # ============================================================
+# HTTP-СЕРВЕР ДЛЯ RENDER (проверка работоспособности)
+# ============================================================
+app = Flask(__name__)
+
+@app.route('/')
+def health():
+    return "Bot is running"
+
+def run_health_server():
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
+
+
+# ============================================================
 # ЗАПУСК
 # ============================================================
 if __name__ == "__main__":
@@ -2030,4 +2047,7 @@ if __name__ == "__main__":
     elif GUILD_ID == 0:
         print("❌ GUILD_ID не задан в .env!")
     else:
+        # Запускаем HTTP-сервер в фоновом потоке для прохождения проверки Render
+        threading.Thread(target=run_health_server, daemon=True).start()
+        # Запускаем бота
         bot.run(DISCORD_TOKEN)
