@@ -1,5 +1,5 @@
 """
-Quantum - бот клана (v9: диагностика + flush=True + защита ролей)
+Quantum - бот клана (v10: финальная версия + оптимизация фоновых задач)
 """
 import os
 import re
@@ -28,7 +28,6 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-# Принудительный unbuffered вывод
 os.environ.setdefault("PYTHONUNBUFFERED", "1")
 
 load_dotenv()
@@ -49,7 +48,6 @@ def now_utc() -> datetime.datetime:
 
 
 def log(msg: str):
-    """Единый логгер с flush."""
     print(msg, flush=True)
 
 
@@ -103,9 +101,6 @@ AI_CHAT_COOLDOWN_SEC = int(os.getenv("AI_CHAT_COOLDOWN_SEC", "5"))
 
 BOT_START_TIME = time.time()
 
-# ============================================================
-# CS2RED — 15 COOKIES
-# ============================================================
 CS2RED_COOKIES = {k: v for k, v in {
     "token": os.getenv("CS2RED_TOKEN", ""),
     "bh": os.getenv("CS2RED_BH", ""),
@@ -165,7 +160,8 @@ BAN_CHECK_INTERVAL_HOURS = 24
 MUTE_CHECK_INTERVAL_HOURS = 2
 REQUEST_DELAY = 0.3
 
-ACTIVITY_TRACK_SECONDS = 60
+ACTIVITY_TRACK_SECONDS = 300
+ACTIVITY_TRACK_DELTA = 300
 CLANS_CACHE_TTL = 300
 
 AI_THINKING_PHRASES = [
@@ -184,9 +180,6 @@ AI_CHAT_SYSTEM_PROMPTS = [
 ]
 
 
-# ============================================================
-# ХРАНИЛИЩЕ JSON
-# ============================================================
 class JsonStore:
     def __init__(self, path, default):
         self.path = Path(path)
@@ -236,9 +229,6 @@ seen_store = JsonStore(data_path("seen.json"), dict)
 ai_stats_store = JsonStore(data_path("ai_stats.json"), dict)
 
 
-# ============================================================
-# ЛОГИРОВАНИЕ
-# ============================================================
 def _write_error_to_file(context: str, exc):
     try:
         ts = now_utc().strftime("%Y-%m-%d %H:%M:%S")
@@ -274,9 +264,6 @@ async def log_error(bot: commands.Bot, context: str, exc):
         log(f"⚠️ не смог отправить лог: {e}")
 
 
-# ============================================================
-# 429-ЗАЩИТА
-# ============================================================
 _send_semaphore = asyncio.Semaphore(5)
 _send_timestamps = deque()
 
@@ -314,9 +301,6 @@ async def safe_send(target, *args, retries: int = 3, **kwargs):
     return None
 
 
-# ============================================================
-# API: cs2red / Steam
-# ============================================================
 class API:
     def __init__(self):
         self.session: aiohttp.ClientSession | None = None
@@ -335,7 +319,7 @@ class API:
             timeout=aiohttp.ClientTimeout(total=25, connect=15),
             connector=connector,
         )
-        log(f"🌐 API session started. Cookies: {len(CS2RED_COOKIES)}, Headers: {len(CS2RED_HEADERS)}")
+        log(f"🌐 API session. Cookies: {len(CS2RED_COOKIES)}, Headers: {len(CS2RED_HEADERS)}")
 
     async def close(self):
         if self.session and not self.session.closed:
@@ -350,7 +334,7 @@ class API:
                     async with self.session.get(url, params=params) as r:
                         self.last_status = r.status
                         if r.status == 403:
-                            log(f"🔴 403 Forbidden на {url} — cookies не приняты")
+                            log(f"🔴 403 на {url}")
                             return None
                         if r.status == 429:
                             await asyncio.sleep(3)
@@ -361,7 +345,7 @@ class API:
                 if attempt < 2:
                     await asyncio.sleep(2 ** attempt)
                     continue
-                log(f"⚠️ GET {url}: сетевой сбой после 3 попыток: {e}")
+                log(f"⚠️ GET {url}: сетевой сбой: {e}")
                 return None
             except Exception as e:
                 log(f"⚠️ GET {url}: {e}")
@@ -377,10 +361,10 @@ class API:
                     async with self.session.get(url) as r:
                         self.last_status = r.status
                         if r.status == 403:
-                            log(f"🔴 403 Forbidden на {url}")
+                            log(f"🔴 403 на {url}")
                             return None
                         if r.status != 200:
-                            log(f"⚠️ GET {url}: статус {r.status}")
+                            log(f"⚠️ GET {url}: {r.status}")
                             return None
                         return await r.text()
             except NET_ERRORS as e:
@@ -482,9 +466,6 @@ class API:
 api = API()
 
 
-# ============================================================
-# LLM7
-# ============================================================
 class LLM7Client:
     def __init__(self, base_url: str = LLM7_BASE_URL, api_key: str = LLM7_API_KEY,
                  model: str = LLM7_MODEL, timeout: int = 25):
@@ -595,9 +576,6 @@ async def track_ai_usage(user_id: int, channel_id: int, ok: bool):
     await ai_stats_store.update(_upd)
 
 
-# ============================================================
-# ПАРСИНГ CS2RED (bans/mutes)
-# ============================================================
 async def check_punishment_via_html(steam_id: str, kind: str) -> bool:
     category = "MUTES" if kind == "mutes" else "BANS"
     html = await api._get_html(f"https://cs2red.ru/bans?category={category}")
@@ -621,9 +599,6 @@ async def check_punishment_via_html(steam_id: str, kind: str) -> bool:
     return not any(w in txt for w in ("Размучен", "Разбанен", "Снят"))
 
 
-# ============================================================
-# ДОСТУП / ХЕЛПЕРЫ
-# ============================================================
 def is_moderator(user_id: int, guild: discord.Guild) -> bool:
     if user_id in moders_store.read():
         return True
@@ -743,9 +718,6 @@ def extract_discord_id_from_embed(embed: discord.Embed) -> int:
     return 0
 
 
-# ============================================================
-# ПРОФИЛЬ
-# ============================================================
 async def build_player_profile(guild, discord_id, steam_id=None):
     profile = {"discord_id": str(discord_id), "updated_at": now_utc().isoformat()}
     member = guild.get_member(discord_id)
@@ -842,9 +814,6 @@ async def send_player_report(bot, profile):
     await safe_send(channel, embed=embed)
 
 
-# ============================================================
-# ЛОГИ
-# ============================================================
 async def _send(bot, channel_id, text):
     if not channel_id:
         return
@@ -867,9 +836,6 @@ def utc_stamp() -> str:
     return now_utc().strftime("%d.%m.%Y %H:%M")
 
 
-# ============================================================
-# СИНХРОНИЗАЦИЯ РОЛЕЙ
-# ============================================================
 async def sync_role_by_id(guild, member, steam_id):
     user = await api.cs2red_user(steam_id)
     if user is None:
@@ -907,17 +873,14 @@ async def sync_clan_role_by_id(guild, member, steam_id):
     if not CLAN_ROLE_MAP:
         return f"ℹ️ CLAN_ROLE_MAP пуст"
 
-    # 1) проверяем, что API жив
     user = await api.cs2red_user(steam_id)
     if user is None:
         return f"⚠️ {member.display_name}: cs2red не ответил, роли клана не тронуты"
 
-    # 2) проверяем, что /api/clans тоже живой
     clans_raw = await api._get_json("https://cs2red.ru/api/clans")
     if not clans_raw or not clans_raw.get("success"):
         return f"⚠️ {member.display_name}: /api/clans не ответил, роли клана не тронуты"
 
-    # 3) теперь точно можно принимать решения
     clan = await api.player_clan(steam_id)
     managed = set(CLAN_ROLE_MAP.values())
     held = [r for r in member.roles if r.id in managed]
@@ -959,9 +922,6 @@ async def sync_clan_role_by_id(guild, member, steam_id):
         return f"❌ нет прав"
 
 
-# ============================================================
-# БАНЫ / МУТЫ
-# ============================================================
 PUNISHMENTS = {
     "ban": {"endpoint": "bans", "role_id": BANNED_ROLE_ID, "emoji": "🔨", "word": "Бан"},
     "mute": {"endpoint": "mutes", "role_id": MUTED_ROLE_ID, "emoji": "🔇", "word": "Мут"},
@@ -999,9 +959,6 @@ async def check_punishment_roles(bot, guild, kind):
     return actions
 
 
-# ============================================================
-# ВЕТКИ ЗАЯВОК
-# ============================================================
 async def close_application_thread(thread, closed_by, reason):
     if not isinstance(thread, discord.Thread):
         return
@@ -1030,9 +987,6 @@ async def close_application_thread(thread, closed_by, reason):
         log(f"⚠️ close_thread: {e}")
 
 
-# ============================================================
-# ГОЛОСА
-# ============================================================
 def _get_votes(mid):
     return votes_store.read().get(str(mid)) or {"accept": 0, "deny": 0, "voters": []}
 
@@ -1090,9 +1044,6 @@ async def _vote(interaction, kind):
             pass
 
 
-# ============================================================
-# МЕНЮ ЗАЯВКИ
-# ============================================================
 class ApplicationManagement(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -1208,7 +1159,6 @@ class TempBanModal(discord.ui.Modal, title="Запрет"):
             "type": "temp", "until": until, "reason": self.reason.value.strip() or "-"}}))
         await i.response.send_message(f"🚫 <@{self.tid}> запрет на {hours} ч.")
         await log_to_channel(i.client, f"🚫 temp <@{self.tid}> {hours}ч от {i.user.mention}")
-
 
 # ============================================================
 # МОДАЛЬНОЕ ОКНО ЗАЯВКИ
@@ -1862,10 +1812,14 @@ async def ping(i):
 
 
 # ============================================================
-# /ai
+# /ai — ИИ в любом канале
 # ============================================================
-@bot.tree.command(name="ai", description="Спросить у ИИ")
-@app_commands.describe(prompt="Вопрос", reset="Сбросить историю", long="Длинный ответ")
+@bot.tree.command(name="ai", description="Спросить у ИИ (работает в любом канале)")
+@app_commands.describe(
+    prompt="Ваш вопрос или запрос",
+    reset="Сбросить историю диалога в этом канале",
+    long="Длинный ответ (медленнее, подробнее)",
+)
 async def ai(i, prompt: str, reset: bool = False, long: bool = False):
     await i.response.defer(thinking=True)
     last = ai_last_call_by_user.get(i.user.id, 0.0)
@@ -2104,9 +2058,14 @@ async def setup(ctx):
 
 # ============================================================
 # ФОНОВЫЕ ЗАДАЧИ
+# activity_tracker: оптимизирован — 5 минут вместо 60 секунд
 # ============================================================
 @tasks.loop(seconds=ACTIVITY_TRACK_SECONDS)
 async def activity_tracker():
+    """
+    Оптимизация: было каждые 60 сек, стало каждые 5 минут.
+    В 5 раз меньше запросов к cs2red — меньше нагрузка на сервер и API.
+    """
     try:
         links = links_store.read()
         if not links:
@@ -2134,7 +2093,7 @@ async def activity_tracker():
                 continue
             prev = seen.get(nick)
             delta = (secs - prev) if prev is not None and secs >= prev else \
-                (min(secs, ACTIVITY_TRACK_SECONDS * 1.5) if prev is not None else 0.0)
+                (min(secs, ACTIVITY_TRACK_DELTA * 1.5) if prev is not None else 0.0)
             seen[nick] = secs
             if delta <= 0:
                 continue
@@ -2317,4 +2276,158 @@ def _collect_runtime_stats():
         "active_temp_bans": atb,
         "ai_total": int(ai_st.get("total", 0)),
         "ai_success": int(ai_st.get("success", 0)),
-        "ai_fail": int(ai_st.get("fail", 0
+        "ai_fail": int(ai_st.get("fail", 0)),
+        "cookies_count": len(CS2RED_COOKIES),
+        "tasks_running": {
+            "auto_sync": auto_sync.is_running(),
+            "ban_check": ban_check.is_running(),
+            "mute_check": mute_check.is_running(),
+            "activity_tracker": activity_tracker.is_running(),
+            "ai_script_analysis": ai_script_analysis.is_running(),
+        },
+        "sync_interval_min": SYNC_INTERVAL_MINUTES,
+        "ai_interval_min": AI_ANALYSIS_INTERVAL_MINUTES,
+    }
+
+
+def _build_ai_prompt(s, prev=None):
+    lines = [
+        "Проанализируй работу Discord-бота (Quantum).",
+        "",
+        "=== МЕТРИКИ ===",
+        f"Аптайм (сек): {s['uptime_sec']}",
+        f"WS-задержка (мс): {s['ws_latency_ms']}",
+        f"Участников: {s['guild_members']}",
+        f"Привязано: {s['linked_users']}",
+        f"Игроков в БД: {s['players_in_db']} (активных: {s['active_players']})",
+        f"Часов активности: {s['total_tracked_hours']}",
+        f"Модераторов: {s['moderators_count']}",
+        f"Перм.запретов: {s['perm_bans']}",
+        f"Временных: {s['active_temp_bans']}",
+        f"Запросов /ai: {s['ai_total']} (ok {s['ai_success']}, fail {s['ai_fail']})",
+        f"CS2RED cookies: {s['cookies_count']}",
+        "",
+        "=== ЗАДАЧИ ===",
+    ]
+    for n, r in s["tasks_running"].items():
+        lines.append(f"- {n}: {'on' if r else 'OFF'}")
+    lines += ["", "=== ЗАДАНИЕ ===",
+              "1) Оцени роботизированность 0-10.",
+              "2) 3 риска.",
+              "3) 3-4 улучшения.",
+              "4) Итог."]
+    if prev:
+        lines += ["", "=== ПРЕДЫДУЩИЙ ===", prev[:1500]]
+    return "\n".join(lines)
+
+
+async def _run_ai_analysis_once():
+    global _FIRST_AI_REPORT_DONE
+    s = _collect_runtime_stats()
+    prev = None
+    try:
+        p = data_path("ai_last_report.txt")
+        if p.exists():
+            prev = p.read_text(encoding="utf-8")
+    except Exception:
+        pass
+    ans, src = await ai_chat_with_fallback(
+        prompt=_build_ai_prompt(s, prev), system=AI_SYSTEM_PROMPT, history=None,
+        model="default", max_tokens=700, temperature=0.4, timeout=45)
+    if ans is None and not _FIRST_AI_REPORT_DONE:
+        log("🤖 первый ИИ-анализ пропущен")
+        _FIRST_AI_REPORT_DONE = True
+        return None
+    _FIRST_AI_REPORT_DONE = True
+    ch = bot.get_channel(AI_REPORT_CHANNEL_ID) if AI_REPORT_CHANNEL_ID else None
+    if ch is None:
+        await log_error(bot, "ai_report", f"Канал {AI_REPORT_CHANNEL_ID} не найден")
+        return None
+    if ans is None:
+        e = discord.Embed(title="🤖 ИИ-анализ недоступен",
+                          description="LLM7 не ответил.", color=0xED4245,
+                          timestamp=now_utc())
+    else:
+        e = discord.Embed(title="🤖 ИИ-анализ бота (Quantum)", color=0x5865F2,
+                          timestamp=now_utc())
+        e.description = ans[:4000]
+    up = s["uptime_sec"]
+    d, r = divmod(up, 86400)
+    h, r = divmod(r, 3600)
+    m, _ = divmod(r, 60)
+    e.add_field(name="⏱", value=f"`{d}д {h}ч {m}м`", inline=True)
+    e.add_field(name="📡", value=f"`{s['ws_latency_ms']} мс`", inline=True)
+    e.add_field(name="👥", value=f"`{s['linked_users']}`", inline=True)
+    e.add_field(name="🧩",
+                value=f"`{sum(1 for v in s['tasks_running'].values() if v)}/5`", inline=True)
+    e.add_field(name="🚫",
+                value=f"`{s['perm_bans']}/{s['active_temp_bans']}`", inline=True)
+    e.add_field(name="🤖",
+                value=f"`{s['ai_success']}/{s['ai_fail']}`", inline=True)
+    e.add_field(name="🍪", value=f"`{s['cookies_count']}`", inline=True)
+    if bot.user:
+        e.set_footer(text=f"Quantum • {utc_stamp()}", icon_url=bot.user.display_avatar.url)
+    await safe_send(ch, embed=e)
+    if ans:
+        try:
+            data_path("ai_last_report.txt").write_text(ans, encoding="utf-8")
+        except Exception:
+            pass
+    return ans
+
+
+@tasks.loop(minutes=AI_ANALYSIS_INTERVAL_MINUTES)
+async def ai_script_analysis():
+    try:
+        log(f"🤖 ai_script_analysis {now_utc().isoformat()}")
+        await _run_ai_analysis_once()
+    except Exception as e:
+        await log_error(bot, "ai_script_analysis", e)
+
+
+@ai_script_analysis.before_loop
+async def before_ai_script_analysis():
+    await bot.wait_until_ready()
+    await asyncio.sleep(180)
+
+
+@ai_script_analysis.error
+async def ai_script_analysis_error(err):
+    await log_error(bot, "ai_script_analysis.error", err)
+
+
+@bot.tree.command(name="ai_report", description="Запустить ИИ-анализ вручную")
+async def ai_report(i):
+    if not await _admin_guard(i):
+        return
+    await i.response.defer(ephemeral=True)
+    await safe_send(i.followup, "🤖 Запускаю анализ…", ephemeral=True)
+    asyncio.create_task(_run_ai_analysis_once())
+
+
+# ============================================================
+# HTTP-СЕРВЕР ДЛЯ RENDER
+# ============================================================
+app = Flask(__name__)
+
+
+@app.route("/")
+def health():
+    return "Bot is running"
+
+
+def run_health_server():
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+
+
+# ============================================================
+# ЗАПУСК
+# ============================================================
+if __name__ == "__main__":
+    if not DISCORD_TOKEN:
+        log("❌ DISCORD_TOKEN не задан!")
+    elif GUILD_ID == 0:
+        log("❌ GUILD_ID не задан!")
+    else:
+        threading.Thread(target=run_health_server, daemon=True).start()
+        bot.run(DISCORD_TOKEN)
