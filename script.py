@@ -10,6 +10,7 @@ Quantum — бот клана (оптимизированная версия)
 - last_seen трекера активности переживает перезапуск
 + HTTP-сервер для прохождения проверки работоспособности на Render
 + /check_bans и /check_mutes теперь проверяют только выбранного игрока (автодополнение)
++ active_punishments теперь ищет SteamID и ключ снятия в разных местах ответа API
 """
 import os
 import re
@@ -271,26 +272,67 @@ class API:
         return None
 
     async def active_punishments(self, steam_id: str, kind: str) -> list:
-        """kind: 'bans' (ключ unbanId) или 'mutes' (ключ unmuteId).
-        Эндпоинт mutes отдаёт записи под ключом 'bans' — это особенность API."""
+        """
+        kind: 'bans' или 'mutes'.
+        Ищем SteamID и ключ снятия в разных возможных местах ответа API,
+        чтобы не зависеть от изменений структуры.
+        """
         unkey = "unbanId" if kind == "bans" else "unmuteId"
         data = await self._get_json(
             f"https://cs2red.ru/api/data/{kind}",
             params={"begin": 0, "count": 50, "search": steam_id})
         if not data:
+            print(f"⚠️ [{kind}] API вернул пустой ответ для {steam_id}")
             return []
+
+        # --- ОТЛАДКА: показываем сырой ответ API ---
+        print(f"\n🔍 [{kind}] Сырой ответ API для {steam_id}:")
+        try:
+            print(json.dumps(data, ensure_ascii=False, indent=2)[:3000])
+        except Exception:
+            print(repr(data)[:3000])
+        print(f"🔍 [{kind}] Ключи верхнего уровня: {list(data.keys())}")
+        items = data.get("bans") or data.get("mutes") or []
+        print(f"🔍 [{kind}] Найдено записей: {len(items)}")
+        if items:
+            print(f"🔍 [{kind}] Первая запись (ключи): {list(items[0].keys())}")
+        # --- КОНЕЦ ОТЛАДКИ ---
+
         now = int(now_utc().timestamp())
         active = []
-        for it in (data.get("bans") or data.get("mutes") or []):
+        for it in items:
+            # Ищем SteamID в разных местах
             action = it.get("action") or {}
-            if str(action.get("steamid64")) != str(steam_id):
+            item_steam = (
+                action.get("steamid64")
+                or it.get("steamid64")
+                or (it.get("user") or {}).get("steamid64")
+                or (it.get("player") or {}).get("steamid64")
+                or (it.get("target") or {}).get("steamid64")
+            )
+            if str(item_steam) != str(steam_id):
                 continue
+
+            # Проверяем, снят ли бан/мут (разные варианты ключей)
             if it.get(unkey) is not None:
                 continue
+            if it.get("unban_id") is not None or it.get("unmute_id") is not None:
+                continue
+            if it.get("removedId") is not None or it.get("removed_id") is not None:
+                continue
+
+            # Проверяем срок окончания (может прийти строкой)
             end = it.get("endTimeStamp")
+            try:
+                end = int(end) if end is not None else None
+            except (ValueError, TypeError):
+                end = None
             if end and end < now:
                 continue
+
             active.append(it)
+
+        print(f"🔍 [{kind}] Активных записей после фильтра: {len(active)}")
         return active
 
     async def server_times(self) -> dict:
@@ -783,7 +825,7 @@ async def sync_clan_role_by_id(guild: discord.Guild, member: discord.Member,
 
 
 # ============================================================
-# БАНЫ / МУТЫ — РОЛИ (обобщённый код, вместо двух почти одинаковых)
+# БАНЫ / МУТЫ — РОЛИ (обобщённый код)
 # ============================================================
 PUNISHMENTS = {
     "ban": {"endpoint": "bans", "role_id": BANNED_ROLE_ID, "emoji": "🔨", "word": "Бан"},
@@ -807,7 +849,7 @@ async def check_punishment_roles(bot: commands.Bot, guild: discord.Guild,
         punished = bool(await api.active_punishments(steam_id, cfg["endpoint"]))
         has_role = role in member.roles
         if punished == has_role:
-            continue  # ничего не изменилось — самый частый случай
+            continue
         try:
             if punished:
                 await member.add_roles(role, reason=f"{cfg['word']} cs2red.ru")
@@ -861,7 +903,7 @@ async def close_application_thread(thread: discord.Thread,
 
 
 # ============================================================
-# ГОЛОСА ПО ЗАЯВКАМ (хранятся в votes.json, не теряются при рестарте)
+# ГОЛОСА ПО ЗАЯВКАМ
 # ============================================================
 def _get_votes(message_id: int) -> dict:
     return votes_store.read().get(str(message_id)) or {"accept": 0, "deny": 0, "voters": []}
