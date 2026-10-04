@@ -9,8 +9,8 @@ Quantum — бот клана (оптимизированная версия)
 - /link не даёт привязать один SteamID к нескольким Discord
 - last_seen трекера активности переживает перезапуск
 + HTTP-сервер для прохождения проверки работоспособности на Render
-+ /check_bans и /check_mutes теперь проверяют только выбранного игрока (автодополнение)
-+ active_punishments теперь ищет SteamID и ключ снятия в разных местах ответа API
++ /check_bans и /check_mutes проверяют только выбранного игрока (автодополнение)
++ active_punishments считает ТОЛЬКО активные наказания (снятые и истёкшие отсекаются)
 + добавлена команда /debug_punishments для отладки структуры API
 """
 import os
@@ -80,7 +80,7 @@ AUTO_ROLE_ID = int(os.getenv("AUTO_ROLE_ID", "0"))
 BYPASS_ROLE_ID = int(os.getenv("BYPASS_ROLE_ID", "0"))
 NO_COOLDOWN_ROLE_ID = 1554633825311654048
 
-# --- РОЛИ ЗА БАНЫ И МУТЫ (то, что вы указали) ---
+# --- РОЛИ ЗА БАНЫ И МУТЫ ---
 BANNED_ROLE_ID = 1554791570161668218    # роль за бан
 MUTED_ROLE_ID = 1554821496650862632     # роль за мут
 ACTIVITY_ROLE_ID = 1448368118190837800
@@ -187,7 +187,7 @@ links_store = JsonStore(data_path("links.json"), dict)
 players_store = JsonStore(data_path("players_db.json"), dict)
 bans_store = JsonStore(data_path("users_db.json"), dict)      # запреты на заявки
 moders_store = JsonStore(data_path("moderators.json"), list)
-votes_store = JsonStore(data_path("votes.json"), dict)        # голоса по заявкам (переживают рестарт)
+votes_store = JsonStore(data_path("votes.json"), dict)        # голоса по заявкам
 seen_store = JsonStore(data_path("seen.json"), dict)          # last_seen трекера активности
 
 
@@ -276,8 +276,12 @@ class API:
     async def active_punishments(self, steam_id: str, kind: str) -> list:
         """
         kind: 'bans' или 'mutes'.
-        Ищем SteamID и ключ снятия в разных возможных местах ответа API,
-        чтобы не зависеть от изменений структуры.
+        Считаем ТОЛЬКО активные наказания:
+        - не снятые (нет ключа unbanId/unmuteId/removedId/unban_id/unmute_id)
+        - не истёкшие по времени:
+            endTimeStamp == 0  → перманентный (активен)
+            endTimeStamp > now → ещё активен
+            endTimeStamp <= now → истёк (не считаем)
         """
         unkey = "unbanId" if kind == "bans" else "unmuteId"
         data = await self._get_json(
@@ -287,23 +291,12 @@ class API:
             print(f"⚠️ [{kind}] API вернул пустой ответ для {steam_id}")
             return []
 
-        # --- ОТЛАДКА: показываем сырой ответ API ---
-        print(f"\n🔍 [{kind}] Сырой ответ API для {steam_id}:")
-        try:
-            print(json.dumps(data, ensure_ascii=False, indent=2)[:3000])
-        except Exception:
-            print(repr(data)[:3000])
-        print(f"🔍 [{kind}] Ключи верхнего уровня: {list(data.keys())}")
         items = data.get("bans") or data.get("mutes") or []
-        print(f"🔍 [{kind}] Найдено записей: {len(items)}")
-        if items:
-            print(f"🔍 [{kind}] Первая запись (ключи): {list(items[0].keys())}")
-        # --- КОНЕЦ ОТЛАДКИ ---
-
         now = int(now_utc().timestamp())
         active = []
+
         for it in items:
-            # Ищем SteamID в разных местах
+            # 1) Ищем SteamID в разных местах
             action = it.get("action") or {}
             item_steam = (
                 action.get("steamid64")
@@ -315,7 +308,7 @@ class API:
             if str(item_steam) != str(steam_id):
                 continue
 
-            # Проверяем, снят ли бан/мут (разные варианты ключей)
+            # 2) Отсекаем снятые (разные варианты ключей)
             if it.get(unkey) is not None:
                 continue
             if it.get("unban_id") is not None or it.get("unmute_id") is not None:
@@ -323,18 +316,18 @@ class API:
             if it.get("removedId") is not None or it.get("removed_id") is not None:
                 continue
 
-            # Проверяем срок окончания (может прийти строкой)
+            # 3) Отсекаем истёкшие по времени
             end = it.get("endTimeStamp")
             try:
                 end = int(end) if end is not None else None
             except (ValueError, TypeError):
                 end = None
-            if end and end < now:
+            if end is not None and end != 0 and end <= now:
                 continue
 
             active.append(it)
 
-        print(f"🔍 [{kind}] Активных записей после фильтра: {len(active)}")
+        print(f"🔍 [{kind}] Активных записей для {steam_id}: {len(active)}")
         return active
 
     async def server_times(self) -> dict:
@@ -1379,7 +1372,6 @@ async def link(interaction: discord.Interaction, steam_id: str):
         return
     await interaction.response.defer(ephemeral=True)
 
-    # дыра: один SteamID мог быть привязан к нескольким Discord
     existing = links_store.read()
     owner = next((did for did, sid in existing.items() if sid == steam_id), None)
     if owner and int(owner) != interaction.user.id:
@@ -1416,7 +1408,6 @@ async def unlink(interaction: discord.Interaction):
     if removed_sid is None:
         await interaction.followup.send("ℹ️ Ты не был привязан.", ephemeral=True)
         return
-    # дыра: раньше снимались только ROLE_MAP-роли, клановые оставались
     managed_names = {n for n in ROLE_MAP.values() if n}
     managed_ids = set(CLAN_ROLE_MAP.values())
     removed = []
@@ -1474,17 +1465,15 @@ async def linked_member_autocomplete(
         member = interaction.guild.get_member(int(discord_id))
         if member is None:
             continue
-        # фильтр по введённому тексту (по имени или SteamID)
         search = current.lower()
         if search and search not in member.display_name.lower() and search not in steam_id:
-            continue
-        choices.append(
+            continue        choices.append(
             app_commands.Choice(
                 name=f"{member.display_name} | {steam_id}",
                 value=str(member.id),
             )
         )
-        if len(choices) >= 25:  # лимит Discord — 25 вариантов
+        if len(choices) >= 25:
             break
     return choices
 
@@ -1495,7 +1484,7 @@ async def _check_single_punishment(
     kind: str,
 ) -> None:
     """
-    Проверяет ОДНОГО игрока на баны или муты и выдаёт/снимает роль.
+    Проверяет ОДНОГО игрока на АКТИВНЫЕ баны или муты и выдаёт/снимает роль.
     kind: 'ban' или 'mute'
     """
     cfg = PUNISHMENTS[kind]
@@ -1514,11 +1503,12 @@ async def _check_single_punishment(
         )
         return
 
-    punished = bool(await api.active_punishments(steam_id, cfg["endpoint"]))
+    active = await api.active_punishments(steam_id, cfg["endpoint"])
+    punished = bool(active)
     has_role = role in member.roles
 
     if punished == has_role:
-        status = "уже имеет роль" if has_role else "чист"
+        status = "уже имеет роль" if has_role else "чист (активных нет)"
         await interaction.followup.send(
             f"ℹ️ **{member.display_name}** — {status}. Изменений не требуется.",
             ephemeral=True,
@@ -1535,7 +1525,8 @@ async def _check_single_punishment(
 
         await interaction.followup.send(
             f"**{cfg['word']} — {member.display_name}**\n"
-            f"SteamID: `{steam_id}`\n{result}",
+            f"SteamID: `{steam_id}`\n"
+            f"Активных наказаний: **{len(active)}**\n{result}",
             ephemeral=True,
         )
         await log_to_applications(
@@ -1554,7 +1545,7 @@ async def _check_single_punishment(
 
 @bot.tree.command(
     name="check_bans",
-    description="Проверить баны выбранного игрока и выдать/снять роль",
+    description="Проверить АКТИВНЫЕ баны выбранного игрока и выдать/снять роль",
 )
 @app_commands.describe(member="Игрок, которого нужно проверить (только привязанные)")
 @app_commands.autocomplete(member=linked_member_autocomplete)
@@ -1581,7 +1572,7 @@ async def check_bans(interaction: discord.Interaction, member: str):
 
 @bot.tree.command(
     name="check_mutes",
-    description="Проверить муты выбранного игрока и выдать/снять роль",
+    description="Проверить АКТИВНЫЕ муты выбранного игрока и выдать/снять роль",
 )
 @app_commands.describe(member="Игрок, которого нужно проверить (только привязанные)")
 @app_commands.autocomplete(member=linked_member_autocomplete)
@@ -1607,7 +1598,7 @@ async def check_mutes(interaction: discord.Interaction, member: str):
 
 
 # ============================================================
-# ОТЛАДОЧНАЯ КОМАНДА: ПОКАЗЫВАЕТ СЫРОЙ ОТВЕТ API
+# ОТЛАДОЧНАЯ КОМАНДА
 # ============================================================
 @bot.tree.command(
     name="debug_punishments",
@@ -2108,7 +2099,6 @@ async def activity_tracker():
                      for sid, p in db.items() if p.get("cs2red_nick")}
     last_seen = seen_store.read()
 
-    # одноразовый сид ников из links
     seeded = last_seen.pop("_seeded", None)
     if not seeded:
         for sid in links.values():
@@ -2130,7 +2120,7 @@ async def activity_tracker():
         if prev is not None and secs >= prev:
             delta = secs - prev
         elif prev is not None:
-            delta = min(secs, ACTIVITY_TRACK_SECONDS * 1.5)  # новая сессия
+            delta = min(secs, ACTIVITY_TRACK_SECONDS * 1.5)
         else:
             delta = 0.0
         last_seen[nick] = secs
@@ -2272,7 +2262,5 @@ if __name__ == "__main__":
     elif GUILD_ID == 0:
         print("❌ GUILD_ID не задан в .env!")
     else:
-        # Запускаем HTTP-сервер в фоновом потоке для прохождения проверки Render
         threading.Thread(target=run_health_server, daemon=True).start()
-        # Запускаем бота
         bot.run(DISCORD_TOKEN)
