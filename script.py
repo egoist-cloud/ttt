@@ -1,17 +1,9 @@
 """
 Quantum — бот клана (оптимизированная версия)
-Та же функциональность, что и раньше, но:
-- единый асинхронный HTTP-клиент (aiohttp, уже идёт с discord.py) вместо requests
-- атомарные запись JSON + блокировки (нет порчи баз при одновременных записях)
-- устранены дубли кода (баны/муты объединены, клан-хелперы слиты)
-- голоса по заявкам хранятся в файле (не сбрасываются при перезапуске)
-- /unlink теперь снимает и клановые роли
-- /link не даёт привязать один SteamID к нескольким Discord
-- last_seen трекера активности переживает перезапуск
-+ HTTP-сервер для прохождения проверки работоспособности на Render
-+ /check_bans и /check_mutes проверяют только выбранного игрока (автодополнение)
-+ active_punishments считает ТОЛЬКО активные наказания (снятые и истёкшие отсекаются)
-+ добавлена команда /debug_punishments для отладки структуры API
+- HTTP-сервер для прохождения проверки работоспособности на Render
+- /check_bans и /check_mutes проверяют только выбранного игрока (автодополнение)
+- Проверка банов/мутов теперь идёт через ПАРСИНГ HTML cs2red.ru (API недоступен)
+- Активным считается наказание, если в строке НЕ стоит "Размучен"/"Разбанен"
 """
 import os
 import re
@@ -28,8 +20,9 @@ from discord.ext import commands, tasks
 from discord import app_commands
 from dotenv import load_dotenv
 from flask import Flask
+from bs4 import BeautifulSoup
 
-# Windows-консоль: не даём print с эмодзи уронить бота (cp1252 не умеет ✅ и т.п.)
+# Windows-консоль: не даём print с эмодзи уронить бота
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 if hasattr(sys.stderr, "reconfigure"):
@@ -39,16 +32,12 @@ load_dotenv()
 
 # ------------------------------------------------------------
 # ПАПКА ДАННЫХ
-# Локально — рядом со скриптом; на хостинге (Render) задаётся DATA_DIR=/data —
-# это постоянный диск, который НЕ стирается при пересборке проекта.
-# Все JSON-файлы состояния должны лежать только здесь.
 # ------------------------------------------------------------
 DATA_DIR = Path(os.getenv("DATA_DIR", ".")).resolve()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def data_path(name: str) -> Path:
-    """Абсолютный путь к файлу данных внутри DATA_DIR."""
     return DATA_DIR / name
 
 
@@ -56,6 +45,7 @@ UTC = datetime.UTC
 
 def now_utc() -> datetime.datetime:
     return datetime.datetime.now(UTC)
+
 
 # ============================================================
 # НАСТРОЙКИ
@@ -104,10 +94,9 @@ CS2RED_COOKIES = {k: v for k, v in {
 CS2RED_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                   "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Accept": "*/*",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "ru-RU,ru;q=0.6",
-    "Referer": "https://cs2red.ru/admin",
-    "Origin": "https://cs2red.ru",
+    "Referer": "https://cs2red.ru/",
 }
 
 ROLE_MAP = {1: None, 2: "VIP", 3: "Premium", 4: "Moderator",
@@ -135,13 +124,13 @@ MUTE_CHECK_INTERVAL_HOURS = 2
 REQUEST_DELAY = 1.0
 
 ACTIVITY_TRACK_SECONDS = 60
-CLANS_CACHE_TTL = 300  # кэш списка кланов, сек
+CLANS_CACHE_TTL = 300
+
 
 # ============================================================
-# ХРАНИЛИЩЕ JSON (атомарная запись + блокировка)
+# ХРАНИЛИЩЕ JSON
 # ============================================================
 class JsonStore:
-    """Безопасное read-modify-write хранилище. Все мутации — через update()."""
     def __init__(self, path, default):
         self.path = Path(path)
         self.default = default
@@ -160,10 +149,9 @@ class JsonStore:
         tmp = self.path.with_name(self.path.name + ".tmp")
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, self.path)  # атомарно: не останется битого файла
+        os.replace(tmp, self.path)
 
     def read(self):
-        """Быстрое чтение снапшота (для чтения без мутации)."""
         return self._load()
 
     async def get(self):
@@ -175,7 +163,6 @@ class JsonStore:
             self._dump(data)
 
     async def update(self, fn):
-        """fn(data) -> результат; data сохраняется автоматически."""
         async with self.lock:
             data = self._load()
             result = fn(data)
@@ -185,17 +172,16 @@ class JsonStore:
 
 links_store = JsonStore(data_path("links.json"), dict)
 players_store = JsonStore(data_path("players_db.json"), dict)
-bans_store = JsonStore(data_path("users_db.json"), dict)      # запреты на заявки
+bans_store = JsonStore(data_path("users_db.json"), dict)
 moders_store = JsonStore(data_path("moderators.json"), list)
-votes_store = JsonStore(data_path("votes.json"), dict)        # голоса по заявкам
-seen_store = JsonStore(data_path("seen.json"), dict)          # last_seen трекера активности
+votes_store = JsonStore(data_path("votes.json"), dict)
+seen_store = JsonStore(data_path("seen.json"), dict)
 
 
 # ============================================================
-# HTTP-КЛИЕНТ (aiohttp — уже зависимость discord.py)
+# HTTP-КЛИЕНТ
 # ============================================================
 class API:
-    """Единая точка доступа к cs2red и Steam: пул соединений + лимит параллелизма."""
     def __init__(self):
         self.session: aiohttp.ClientSession | None = None
         self.sem = asyncio.Semaphore(4)
@@ -205,7 +191,7 @@ class API:
         self.session = aiohttp.ClientSession(
             headers=CS2RED_HEADERS,
             cookies=CS2RED_COOKIES or None,
-            timeout=aiohttp.ClientTimeout(total=15),
+            timeout=aiohttp.ClientTimeout(total=20),
         )
 
     async def close(self):
@@ -226,7 +212,21 @@ class API:
                 print(f"⚠️ GET {url}: {e}")
                 return None
 
-    # --- cs2red ---
+    async def _get_html(self, url):
+        if not self.session:
+            return None
+        async with self.sem:
+            try:
+                async with self.session.get(url) as r:
+                    if r.status != 200:
+                        print(f"⚠️ GET {url}: статус {r.status}")
+                        return None
+                    return await r.text()
+            except Exception as e:
+                print(f"⚠️ GET {url}: {e}")
+                return None
+
+    # --- cs2red (API) ---
     async def cs2red_user(self, steam_id: str):
         data = await self._get_json(
             "https://cs2red.ru/api/admin/users",
@@ -248,7 +248,6 @@ class API:
         return None
 
     async def cs2red_clans(self):
-        """Список кланов с кэшем — раньше запрашивался на КАЖДОГО игрока."""
         ts = asyncio.get_event_loop().time()
         if self._clans_cache["data"] is not None and ts - self._clans_cache["ts"] < CLANS_CACHE_TTL:
             return self._clans_cache["data"]
@@ -273,65 +272,7 @@ class API:
                     }
         return None
 
-    async def active_punishments(self, steam_id: str, kind: str) -> list:
-        """
-        kind: 'bans' или 'mutes'.
-        Считаем ТОЛЬКО активные наказания:
-        - не снятые (нет ключа unbanId/unmuteId/removedId/unban_id/unmute_id)
-        - не истёкшие по времени:
-            endTimeStamp == 0  → перманентный (активен)
-            endTimeStamp > now → ещё активен
-            endTimeStamp <= now → истёк (не считаем)
-        """
-        unkey = "unbanId" if kind == "bans" else "unmuteId"
-        data = await self._get_json(
-            f"https://cs2red.ru/api/data/{kind}",
-            params={"begin": 0, "count": 50, "search": steam_id})
-        if not data:
-            print(f"⚠️ [{kind}] API вернул пустой ответ для {steam_id}")
-            return []
-
-        items = data.get("bans") or data.get("mutes") or []
-        now = int(now_utc().timestamp())
-        active = []
-
-        for it in items:
-            # 1) Ищем SteamID в разных местах
-            action = it.get("action") or {}
-            item_steam = (
-                action.get("steamid64")
-                or it.get("steamid64")
-                or (it.get("user") or {}).get("steamid64")
-                or (it.get("player") or {}).get("steamid64")
-                or (it.get("target") or {}).get("steamid64")
-            )
-            if str(item_steam) != str(steam_id):
-                continue
-
-            # 2) Отсекаем снятые (разные варианты ключей)
-            if it.get(unkey) is not None:
-                continue
-            if it.get("unban_id") is not None or it.get("unmute_id") is not None:
-                continue
-            if it.get("removedId") is not None or it.get("removed_id") is not None:
-                continue
-
-            # 3) Отсекаем истёкшие по времени
-            end = it.get("endTimeStamp")
-            try:
-                end = int(end) if end is not None else None
-            except (ValueError, TypeError):
-                end = None
-            if end is not None and end != 0 and end <= now:
-                continue
-
-            active.append(it)
-
-        print(f"🔍 [{kind}] Активных записей для {steam_id}: {len(active)}")
-        return active
-
     async def server_times(self) -> dict:
-        """ник -> секунды на сервере (по всем онлайн-игрокам)."""
         data = await self._get_json("https://cs2red.ru/api/data/servers")
         result = {}
         for s in ((data or {}).get("servers") or []):
@@ -382,6 +323,55 @@ class API:
 
 
 api = API()
+
+
+# ============================================================
+# ПАРСИНГ HTML CS2RED — ПРОВЕРКА АКТИВНОГО МУТА/БАНА
+# ============================================================
+async def check_punishment_via_html(steam_id: str, kind: str) -> bool:
+    """
+    Идёт на cs2red.ru/bans?category=MUTES|BANS и ищет строку с SteamID.
+    Возвращает True, если наказание активно (в строке нет 'Размучен'/'Разбанен').
+    kind: 'mutes' или 'bans'
+    """
+    category = "MUTES" if kind == "mutes" else "BANS"
+    url = f"https://cs2red.ru/bans?category={category}"
+
+    html = await api._get_html(url)
+    if not html:
+        print(f"⚠️ [{kind}] Не удалось получить HTML с {url}")
+        return False
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    # Находим ссылку на профиль игрока с нужным SteamID
+    profile_link = soup.find("a", href=f"/profile/{steam_id}")
+    if not profile_link:
+        print(f"🔍 [{kind}] SteamID {steam_id} не найден на первой странице")
+        return False
+
+    # Поднимаемся до строки-контейнера (ищем ближайший div с классом self-stretch h-16)
+    row = profile_link
+    for _ in range(10):
+        row = row.parent
+        if row is None:
+            break
+        classes = row.get("class") or []
+        if "self-stretch" in classes and "h-16" in classes:
+            break
+    if row is None:
+        print(f"🔍 [{kind}] Не удалось найти строку для {steam_id}")
+        return False
+
+    # Внутри строки ищем статус. Если есть "Размучен"/"Разбанен" — снят.
+    row_text = row.get_text(" ", strip=True)
+    if "Размучен" in row_text or "Разбанен" in row_text or "Снят" in row_text:
+        print(f"🔍 [{kind}] {steam_id} — снят")
+        return False
+
+    # Если нашли строку и нет пометки о снятии — наказание активно
+    print(f"🔍 [{kind}] {steam_id} — АКТИВЕН")
+    return True
 
 
 # ============================================================
@@ -583,12 +573,6 @@ async def build_player_profile(guild: discord.Guild, discord_id: int,
             profile["cs2red_nick"] = inner.get("nick", profile.get("cs2red_nick"))
             profile["cs2red_role_id"] = inner.get("roleId", profile.get("cs2red_role_id"))
 
-    bans, mutes = await asyncio.gather(
-        api.active_punishments(steam_id, "bans"),
-        api.active_punishments(steam_id, "mutes"),
-    )
-    profile["active_bans"], profile["active_mutes"] = bans, mutes
-    profile["banned"], profile["muted"] = bool(bans), bool(mutes)
     profile["activity_hours"] = get_player_activity(steam_id)
 
     summary = await api.steam_summary(steam_id)
@@ -645,36 +629,7 @@ async def send_player_report(bot: commands.Bot, profile: dict):
             vac_lines.append(f"❌ **Economy ban**: {sb['economy_ban']}")
         field("🛡️ Steam-баны", "\n".join(vac_lines))
 
-    def punishment_block(items, undone_key, kind_word):
-        lines = []
-        for it in items[:5]:
-            dur = _duration_text(it.get("timestamp"), it.get("endTimeStamp"),
-                                 it.get(undone_key))
-            line = (f"**{kind_word} от {_fmt_timestamp(it.get('timestamp'))}**\n"
-                    f"   ⏱ Длительность: **{dur}**\n"
-                    f"   📅 До: `{_fmt_timestamp(it.get('endTimeStamp'))}`\n"
-                    f"   📝 Причина: {it.get('reason', '—')}\n"
-                    f"   👮 Выдал: **{_admin_name(it)}**")
-            if kind_word.startswith("🔇"):
-                types = {1: "Текст + Голос", 2: "Текст", 3: "Голос"}
-                line += f"\n   🎯 Тип: **{types.get(it.get('typeId'), '—')}**"
-            lines.append(line)
-        if len(items) > 5:
-            lines.append(f"_...и ещё {len(items) - 5}_")
-        return "\n\n".join(lines)
-
-    if profile.get("active_bans"):
-        field(f"🔨 Активные баны cs2red ({len(profile['active_bans'])})",
-              punishment_block(profile["active_bans"], "unbanId", "🔨 Бан"))
-    if profile.get("active_mutes"):
-        field(f"🔇 Активные муты cs2red ({len(profile['active_mutes'])})",
-              punishment_block(profile["active_mutes"], "unmuteId", "🔇 Мут"))
-
     history = []
-    if profile.get("banned"):
-        history.append("🔨 Забанен на cs2red")
-    if profile.get("muted"):
-        history.append("🔇 Замучен на cs2red")
     if sb.get("vac_banned"):
         history.append("❌ VAC-бан")
     hours = profile.get("activity_hours", 0.0)
@@ -829,6 +784,7 @@ PUNISHMENTS = {
 
 async def check_punishment_roles(bot: commands.Bot, guild: discord.Guild,
                                  kind: str) -> list:
+    """Фоновая проверка ВСЕХ привязанных (парсинг HTML)."""
     cfg = PUNISHMENTS[kind]
     role = guild.get_role(cfg["role_id"])
     if role is None:
@@ -840,7 +796,7 @@ async def check_punishment_roles(bot: commands.Bot, guild: discord.Guild,
         member = guild.get_member(int(discord_id))
         if member is None:
             continue
-        punished = bool(await api.active_punishments(steam_id, cfg["endpoint"]))
+        punished = await check_punishment_via_html(steam_id, cfg["endpoint"])
         has_role = role in member.roles
         if punished == has_role:
             continue
@@ -908,7 +864,6 @@ async def _save_votes(message_id: int, state: dict):
 
 
 async def _vote(interaction: discord.Interaction, kind: str):
-    """Общая логика голосования: kind = 'accept' | 'deny'."""
     await interaction.response.defer()
     if not user_can_review(interaction.user):
         await interaction.followup.send("❌ Нет прав.", ephemeral=True)
@@ -1378,10 +1333,6 @@ async def link(interaction: discord.Interaction, steam_id: str):
                                         ephemeral=True)
         return
 
-    banned = await api.active_punishments(steam_id, "bans")
-    if banned:
-        await interaction.followup.send("❌ Этот SteamID забанен.", ephemeral=True)
-        return
     user = await api.cs2red_user(steam_id)
     if user is None:
         await interaction.followup.send(f"❌ Игрок `{steam_id}` не найден.", ephemeral=True)
@@ -1446,16 +1397,12 @@ async def sync_all(interaction: discord.Interaction):
 
 
 # ============================================================
-# ПРОВЕРКА БАНОВ / МУТОВ — ВЫБОР ИГРОКА ЧЕРЕЗ АВТОДОПОЛНЕНИЕ
+# ПРОВЕРКА БАНОВ / МУТОВ — АВТОДОПОЛНЕНИЕ
 # ============================================================
 async def linked_member_autocomplete(
     interaction: discord.Interaction,
     current: str,
 ) -> list[app_commands.Choice[str]]:
-    """
-    Автодополнение: показывает только тех участников сервера,
-    которые привязаны к SteamID через /link.
-    """
     links = links_store.read()
     if not links:
         return []
@@ -1483,10 +1430,7 @@ async def _check_single_punishment(
     member: discord.Member,
     kind: str,
 ) -> None:
-    """
-    Проверяет ОДНОГО игрока на АКТИВНЫЕ баны или муты и выдаёт/снимает роль.
-    kind: 'ban' или 'mute'
-    """
+    """Проверка ОДНОГО игрока через парсинг HTML cs2red.ru."""
     cfg = PUNISHMENTS[kind]
     role = interaction.guild.get_role(cfg["role_id"])
     if role is None:
@@ -1503,8 +1447,9 @@ async def _check_single_punishment(
         )
         return
 
-    active = await api.active_punishments(steam_id, cfg["endpoint"])
-    punished = bool(active)
+    # kind: 'ban' -> 'bans', 'mute' -> 'mutes'
+    html_kind = "bans" if kind == "ban" else "mutes"
+    punished = await check_punishment_via_html(steam_id, html_kind)
     has_role = role in member.roles
 
     if punished == has_role:
@@ -1526,7 +1471,7 @@ async def _check_single_punishment(
         await interaction.followup.send(
             f"**{cfg['word']} — {member.display_name}**\n"
             f"SteamID: `{steam_id}`\n"
-            f"Активных наказаний: **{len(active)}**\n{result}",
+            f"Наказание активно: **{'да' if punished else 'нет'}**\n{result}",
             ephemeral=True,
         )
         await log_to_applications(
@@ -1545,7 +1490,7 @@ async def _check_single_punishment(
 
 @bot.tree.command(
     name="check_bans",
-    description="Проверить АКТИВНЫЕ баны выбранного игрока и выдать/снять роль",
+    description="Проверить активные баны выбранного игрока и выдать/снять роль",
 )
 @app_commands.describe(member="Игрок, которого нужно проверить (только привязанные)")
 @app_commands.autocomplete(member=linked_member_autocomplete)
@@ -1572,7 +1517,7 @@ async def check_bans(interaction: discord.Interaction, member: str):
 
 @bot.tree.command(
     name="check_mutes",
-    description="Проверить АКТИВНЫЕ муты выбранного игрока и выдать/снять роль",
+    description="Проверить активные муты выбранного игрока и выдать/снять роль",
 )
 @app_commands.describe(member="Игрок, которого нужно проверить (только привязанные)")
 @app_commands.autocomplete(member=linked_member_autocomplete)
@@ -1595,63 +1540,6 @@ async def check_mutes(interaction: discord.Interaction, member: str):
         return
 
     await _check_single_punishment(interaction, target, "mute")
-
-
-# ============================================================
-# ОТЛАДОЧНАЯ КОМАНДА
-# ============================================================
-@bot.tree.command(
-    name="debug_punishments",
-    description="[ОТЛАДКА] Показать сырой ответ API по мутам/банам для SteamID",
-)
-@app_commands.describe(
-    steam_id="SteamID64 игрока",
-    kind="Что проверять: bans или mutes",
-)
-@app_commands.choices(kind=[
-    app_commands.Choice(name="Баны", value="bans"),
-    app_commands.Choice(name="Муты", value="mutes"),
-])
-async def debug_punishments(
-    interaction: discord.Interaction,
-    steam_id: str,
-    kind: app_commands.Choice[str],
-):
-    if not await _admin_guard(interaction):
-        return
-    await interaction.response.defer(ephemeral=True)
-
-    url = f"https://cs2red.ru/api/data/{kind.value}"
-    params = {"begin": 0, "count": 50, "search": steam_id}
-    data = await api._get_json(url, params=params)
-
-    if not data:
-        await interaction.followup.send(
-            f"❌ API вернул пустой ответ или ошибку.\n"
-            f"URL: `{url}`\nПараметры: `{params}`",
-            ephemeral=True,
-        )
-        return
-
-    text = f"**🔍 Ответ API `{kind.value}` для `{steam_id}`**\n\n"
-    text += f"**Ключи верхнего уровня:** `{list(data.keys())}`\n\n"
-
-    items = data.get("bans") or data.get("mutes") or []
-    text += f"**Найдено записей:** {len(items)}\n\n"
-
-    if items:
-        first = items[0]
-        text += f"**Ключи первой записи:** `{list(first.keys())}`\n\n"
-        text += "**Первая запись (JSON):**\n```json\n"
-        text += json.dumps(first, ensure_ascii=False, indent=2)[:1500]
-        text += "\n```"
-    else:
-        text += "_Записей нет. Возможно, SteamID не тот или данные хранятся иначе._"
-
-    if len(text) > 1900:
-        text = text[:1900] + "\n...(обрезано)"
-
-    await interaction.followup.send(text, ephemeral=True)
 
 
 @bot.tree.command(name="link_all", description="Массово привязать из mass_links.json")
@@ -1682,9 +1570,6 @@ async def link_all(interaction: discord.Interaction):
         if member is None:
             errors.append(f"⚠️ {discord_id}: нет на сервере")
             continue
-        if await api.active_punishments(steam_id, "bans"):
-            errors.append(f"🔨 {member.display_name}: забанен")
-            continue
         user = await api.cs2red_user(steam_id)
         if user is None:
             errors.append(f"⚠️ {member.display_name}: SteamID не найден")
@@ -1692,18 +1577,6 @@ async def link_all(interaction: discord.Interaction):
         await links_store.update(lambda d: d.update({str(discord_id): steam_id}))
         added.append(f"✅ {member.display_name} → {steam_id}")
         await asyncio.sleep(REQUEST_DELAY)
-
-    links = links_store.read()
-    for discord_id, steam_id in mass_data.items():
-        if links.get(str(discord_id)) != str(steam_id):
-            continue
-        member = interaction.guild.get_member(int(discord_id))
-        if member:
-            try:
-                await sync_role_by_id(interaction.guild, member, str(steam_id))
-            except Exception:
-                pass
-            await asyncio.sleep(REQUEST_DELAY)
 
     text = (f"📊 **Массовая привязка**\n✅ Добавлено: {len(added)}\n❌ Ошибок: {len(errors)}\n\n")
     if added:
@@ -1800,10 +1673,6 @@ async def player_list(interaction: discord.Interaction):
     for sid, p in db.items():
         nick = p.get("cs2red_nick") or p.get("discord_name") or sid
         flags = []
-        if p.get("banned"):
-            flags.append("🔨")
-        if p.get("muted"):
-            flags.append("🔇")
         if p.get("steam_bans", {}).get("vac_banned"):
             flags.append("❌VAC")
         discord_id = p.get("discord_id") or rev.get(sid)
@@ -1934,9 +1803,9 @@ async def _activity_guard(interaction: discord.Interaction,
     return steam_id
 
 
-@bot.tree.command(name="activity_set", description="Установить часы активности игрока на сервере")
-@app_commands.describe(member="Участник Discord", server="Название сервера (PUBLIC, AWP...)",
-                       hours="Количество часов (можно дробное: 1.5)")
+@bot.tree.command(name="activity_set", description="Установить часы активности игрока")
+@app_commands.describe(member="Участник Discord", server="Название сервера",
+                       hours="Количество часов")
 async def activity_set(interaction: discord.Interaction, member: discord.Member,
                        server: str, hours: float):
     steam_id = await _activity_guard(interaction, member)
@@ -1966,7 +1835,7 @@ async def activity_set(interaction: discord.Interaction, member: discord.Member,
         ephemeral=True)
 
 
-@bot.tree.command(name="activity_clear", description="Сбросить всю активность игрока (новая неделя)")
+@bot.tree.command(name="activity_clear", description="Сбросить активность игрока")
 @app_commands.describe(member="Участник Discord")
 async def activity_clear(interaction: discord.Interaction, member: discord.Member):
     steam_id = await _activity_guard(interaction, member)
@@ -2240,7 +2109,7 @@ async def before_auto_sync():
 
 
 # ============================================================
-# HTTP-СЕРВЕР ДЛЯ RENDER (проверка работоспособности)
+# HTTP-СЕРВЕР ДЛЯ RENDER
 # ============================================================
 app = Flask(__name__)
 
