@@ -1,20 +1,9 @@
-=====================================================================
-  QUANTUM — Discord-бот клана (полный код, актуальный)
-  Папка проекта: C:\Users\kunde\PycharmProjects\WelcomeScreen
-  Собрано автоматически.
-=====================================================================
-
-
-
-======================================================================
-  ФАЙЛ: script.py  (ГЛАВНЫЙ ФАЙЛ БОТА (весь код), 92073 байт)
-======================================================================
 """
-Quantum — бот клана (оптимизированная версия)
+Quantum - бот клана (оптимизированная версия)
 - HTTP-сервер для прохождения проверки работоспособности на Render
 - /check_bans и /check_mutes проверяют только выбранного игрока (автодополнение)
-- Проверка банов/мутов теперь идёт через ПАРСИНГ HTML cs2red.ru (API недоступен)
-- Активным считается наказание, если в строке НЕ стоит "Размучен"/"Разбанен"
+- Проверка банов/мутов через ПАРСИНГ HTML cs2red.ru (API недоступен)
+- Активным считается наказание, если в строке НЕТ "Размучен"/"Разбанен"
 """
 import os
 import re
@@ -53,6 +42,7 @@ def data_path(name: str) -> Path:
 
 
 UTC = datetime.UTC
+
 
 def now_utc() -> datetime.datetime:
     return datetime.datetime.now(UTC)
@@ -115,8 +105,10 @@ ROLE_MAP = {1: None, 2: "VIP", 3: "Premium", 4: "Moderator",
 ROLE_DISPLAY_MAP = {1: "Мл. Модер", 3: "Модератор", 5: "Админ",
                     6: "С. Админ", 7: "Спонсор", 13: "Гл.Модератор"}
 
+
 def role_display_name(role_id) -> str:
     return ROLE_DISPLAY_MAP.get(role_id) or ROLE_MAP.get(role_id) or "Игрок"
+
 
 CLAN_ROLE_MAP = {
     47: 1448368118190837800, 108: 1555181110248476843, 95: 1454987841019838547,
@@ -337,7 +329,7 @@ api = API()
 
 
 # ============================================================
-# ПАРСИНГ HTML CS2RED — ПРОВЕРКА АКТИВНОГО МУТА/БАНА
+# ПАРСИНГ HTML CS2RED - ПРОВЕРКА АКТИВНОГО МУТА/БАНА
 # ============================================================
 async def check_punishment_via_html(steam_id: str, kind: str) -> bool:
     """
@@ -355,13 +347,11 @@ async def check_punishment_via_html(steam_id: str, kind: str) -> bool:
 
     soup = BeautifulSoup(html, "html.parser")
 
-    # Находим ссылку на профиль игрока с нужным SteamID
     profile_link = soup.find("a", href=f"/profile/{steam_id}")
     if not profile_link:
         print(f"🔍 [{kind}] SteamID {steam_id} не найден на первой странице")
         return False
 
-    # Поднимаемся до строки-контейнера (ищем ближайший div с классом self-stretch h-16)
     row = profile_link
     for _ in range(10):
         row = row.parent
@@ -374,14 +364,12 @@ async def check_punishment_via_html(steam_id: str, kind: str) -> bool:
         print(f"🔍 [{kind}] Не удалось найти строку для {steam_id}")
         return False
 
-    # Внутри строки ищем статус. Если есть "Размучен"/"Разбанен" — снят.
     row_text = row.get_text(" ", strip=True)
     if "Размучен" in row_text or "Разбанен" in row_text or "Снят" in row_text:
-        print(f"🔍 [{kind}] {steam_id} — снят")
+        print(f"🔍 [{kind}] {steam_id} - снят")
         return False
 
-    # Если нашли строку и нет пометки о снятии — наказание активно
-    print(f"🔍 [{kind}] {steam_id} — АКТИВЕН")
+    print(f"🔍 [{kind}] {steam_id} - АКТИВЕН")
     return True
 
 
@@ -437,7 +425,7 @@ def is_user_blocked(discord_id: int) -> tuple:
         return False, ""
     typ = entry.get("type", "temp")
     reason = entry.get("reason") or ""
-    suffix = f" Причина: {reason}" if reason and reason != "—" else ""
+    suffix = f" Причина: {reason}" if reason and reason != "-" else ""
     if typ == "perm":
         return True, "⛔ Вам **перманентно запрещено** подавать заявки." + suffix
     if typ == "temp":
@@ -462,7 +450,7 @@ def is_user_blocked(discord_id: int) -> tuple:
 # ============================================================
 def _fmt_timestamp(ts):
     if not ts:
-        return "—"
+        return "-"
     if ts == 0:
         return "перманентно"
     try:
@@ -478,7 +466,7 @@ def _admin_name(entry):
     admin_id = entry.get("adminId")
     if admin_id == 0:
         return "Система (автобан)"
-    return f"ID {admin_id}" if admin_id else "—"
+    return f"ID {admin_id}" if admin_id else "-"
 
 
 def _duration_text(start_ts, end_ts, undone=None):
@@ -523,7 +511,7 @@ def build_activity_bar(hours: float, goal: float = 8.0, length: int = 10) -> str
     else:
         emoji, status = "🟢", "Отлично"
     extra = f" (+{hours - goal:.1f} ч.)" if hours > goal else ""
-    return f"`{'█' * filled}{'░' * (length - filled)}` {hours:.1f} / {goal:.0f} ч. — {emoji} {status}{extra}"
+    return f"`{'█' * filled}{'░' * (length - filled)}` {hours:.1f} / {goal:.0f} ч. - {emoji} {status}{extra}"
 
 
 def get_player_activity(steam_id: str) -> float:
@@ -571,7 +559,7 @@ async def build_player_profile(guild: discord.Guild, discord_id: int,
 
     user = await api.cs2red_user(steam_id)
     if user:
-        profile["cs2red_nick"] = user.get("nick", "—")
+        profile["cs2red_nick"] = user.get("nick", "-")
         profile["cs2red_role_id"] = user.get("roleId")
         profile["cs2red_role_name"] = role_display_name(user.get("roleId"))
 
@@ -655,7 +643,7 @@ async def send_player_report(bot: commands.Bot, profile: dict):
             sid = a.get("serverId", 0)
             srv = "все серверы" if sid == 0 else f"сервер {sid}"
             exp = a.get("expires", 0)
-            lines.append(f"👑 roleId={a.get('roleId', '—')} на {srv}, "
+            lines.append(f"👑 roleId={a.get('roleId', '-')} на {srv}, "
                          f"до: {'перманентно' if exp == 0 else _fmt_timestamp(exp)}")
         if len(admins) > 10:
             lines.append(f"...и ещё {len(admins) - 10}")
@@ -664,14 +652,14 @@ async def send_player_report(bot: commands.Bot, profile: dict):
     vips = [v for v in (profile.get("cs2red_vips") or [])
             if v.get("expires", 0) == 0 or v.get("expires", 0) >= int(now_utc().timestamp())]
     if vips:
-        lines = [f"⭐ {v.get('group', '—')} до "
+        lines = [f"⭐ {v.get('group', '-')} до "
                  f"{'перманентно' if v.get('expires', 0) == 0 else _fmt_timestamp(v.get('expires'))}"
                  for v in vips[:10]]
         field(f"⭐ Активные VIP ({len(vips)})", "\n".join(lines))
 
     if profile.get("steam_avatar"):
         embed.set_thumbnail(url=profile["steam_avatar"])
-    embed.set_footer(text=f"Обновлено: {profile.get('updated_at', '—')}")
+    embed.set_footer(text=f"Обновлено: {profile.get('updated_at', '-')}")
 
     try:
         await channel.send(embed=embed)
@@ -735,7 +723,7 @@ async def sync_role_by_id(guild: discord.Guild, member: discord.Member,
     try:
         await member.add_roles(target)
         return (f"✅ {member.display_name}: выдана '{target_name}' "
-                f"(nick={user.get('nick', '—')}, roleId={user.get('roleId')})")
+                f"(nick={user.get('nick', '-')}, roleId={user.get('roleId')})")
     except discord.Forbidden:
         return f"❌ {member.display_name}: нет прав"
 
@@ -785,7 +773,7 @@ async def sync_clan_role_by_id(guild: discord.Guild, member: discord.Member,
 
 
 # ============================================================
-# БАНЫ / МУТЫ — РОЛИ (обобщённый код)
+# БАНЫ / МУТЫ - РОЛИ (обобщённый код)
 # ============================================================
 PUNISHMENTS = {
     "ban": {"endpoint": "bans", "role_id": BANNED_ROLE_ID, "emoji": "🔨", "word": "Бан"},
@@ -795,7 +783,6 @@ PUNISHMENTS = {
 
 async def check_punishment_roles(bot: commands.Bot, guild: discord.Guild,
                                  kind: str) -> list:
-    """Фоновая проверка ВСЕХ привязанных (парсинг HTML)."""
     cfg = PUNISHMENTS[kind]
     role = guild.get_role(cfg["role_id"])
     if role is None:
@@ -1095,7 +1082,7 @@ class TempBanModal(discord.ui.Modal, title="Выдать запрет на за�
 
         async def _set(d):
             d[str(self.target_id)] = {"type": "temp", "until": until,
-                                      "reason": self.reason.value.strip() or "—"}
+                                      "reason": self.reason.value.strip() or "-"}
         await bans_store.update(_set)
 
         days, rem = divmod(hours, 24)
@@ -1105,15 +1092,15 @@ class TempBanModal(discord.ui.Modal, title="Выдать запрет на за�
         await interaction.response.send_message(
             f"🚫 Пользователю <@{self.target_id}> выдан **запрет**.\n"
             f"**Срок:** {duration_text}\n**Снимется:** `{until_display}` (UTC)\n"
-            f"**Причина:** {self.reason.value or '—'}\n**Выдал:** {interaction.user.mention}")
+            f"**Причина:** {self.reason.value or '-'}\n**Выдал:** {interaction.user.mention}")
         await log_to_channel(interaction.client,
                              f"🚫 **Запрет на заявки**\n**Кому:** <@{self.target_id}>\n"
-                             f"**Срок:** {duration_text}\n**Причина:** {self.reason.value or '—'}\n"
+                             f"**Срок:** {duration_text}\n**Причина:** {self.reason.value or '-'}\n"
                              f"**Выдал:** {interaction.user.mention}")
         await log_to_applications(
             interaction.client,
             f"🚫 **Временный запрет**\n👤 Игрок: <@{self.target_id}>\n⏱ Срок: **{duration_text}**\n"
-            f"📅 Снимется: `{until_display}` (UTC)\n📝 Причина: {self.reason.value or '—'}\n"
+            f"📅 Снимется: `{until_display}` (UTC)\n📝 Причина: {self.reason.value or '-'}\n"
             f"👮 Выдал: {interaction.user.mention}\n🕒 {utc_stamp()} (UTC)")
 
 
@@ -1156,7 +1143,7 @@ class QuestionnaireModal(discord.ui.Modal, title="Заявка в клан"):
         else:
             steam_url, cs2red_url, csstats_url = ("https://steamcommunity.com",
                                                   "https://cs2red.ru", "https://csstats.gg")
-            steam_id_display = "`— не распознан —`"
+            steam_id_display = "`- не распознан -`"
 
         embed_staff = discord.Embed(title="ЗАЯВКА В КЛАН", color=APPLY_EMBED_COLOR)
         embed_staff.add_field(name="Игрок", value=self.nickname.value, inline=False)
@@ -1351,12 +1338,12 @@ async def link(interaction: discord.Interaction, steam_id: str):
 
     await links_store.update(lambda d: d.update({str(interaction.user.id): steam_id}))
     await interaction.followup.send(
-        f"✅ Привязано! SteamID `{steam_id}` (ник: **{user.get('nick', '—')}**).",
+        f"✅ Привязано! SteamID `{steam_id}` (ник: **{user.get('nick', '-')}**).",
         ephemeral=True)
     try:
         status = await sync_role_by_id(interaction.guild, interaction.user, steam_id)
         clan_status = await sync_clan_role_by_id(interaction.guild, interaction.user, steam_id)
-        await log_to_channel(interaction.client, f"🔗 /link — {status}\n{clan_status}")
+        await log_to_channel(interaction.client, f"🔗 /link - {status}\n{clan_status}")
     except Exception as e:
         print(f"⚠️ /link: {e}")
 
@@ -1408,7 +1395,7 @@ async def sync_all(interaction: discord.Interaction):
 
 
 # ============================================================
-# ПРОВЕРКА БАНОВ / МУТОВ — АВТОДОПОЛНЕНИЕ
+# ПРОВЕРКА БАНОВ / МУТОВ - АВТОДОПОЛНЕНИЕ
 # ============================================================
 async def linked_member_autocomplete(
     interaction: discord.Interaction,
@@ -1441,7 +1428,6 @@ async def _check_single_punishment(
     member: discord.Member,
     kind: str,
 ) -> None:
-    """Проверка ОДНОГО игрока через парсинг HTML cs2red.ru."""
     cfg = PUNISHMENTS[kind]
     role = interaction.guild.get_role(cfg["role_id"])
     if role is None:
@@ -1458,7 +1444,6 @@ async def _check_single_punishment(
         )
         return
 
-    # kind: 'ban' -> 'bans', 'mute' -> 'mutes'
     html_kind = "bans" if kind == "ban" else "mutes"
     punished = await check_punishment_via_html(steam_id, html_kind)
     has_role = role in member.roles
@@ -1466,7 +1451,7 @@ async def _check_single_punishment(
     if punished == has_role:
         status = "уже имеет роль" if has_role else "чист (активных нет)"
         await interaction.followup.send(
-            f"ℹ️ **{member.display_name}** — {status}. Изменений не требуется.",
+            f"ℹ️ **{member.display_name}** - {status}. Изменений не требуется.",
             ephemeral=True,
         )
         return
@@ -1480,7 +1465,7 @@ async def _check_single_punishment(
             result = f"✅ Снята роль «{role.name}»: {member.mention}"
 
         await interaction.followup.send(
-            f"**{cfg['word']} — {member.display_name}**\n"
+            f"**{cfg['word']} - {member.display_name}**\n"
             f"SteamID: `{steam_id}`\n"
             f"Наказание активно: **{'да' if punished else 'нет'}**\n{result}",
             ephemeral=True,
@@ -1586,7 +1571,7 @@ async def link_all(interaction: discord.Interaction):
             errors.append(f"⚠️ {member.display_name}: SteamID не найден")
             continue
         await links_store.update(lambda d: d.update({str(discord_id): steam_id}))
-        added.append(f"✅ {member.display_name} → {steam_id}")
+        added.append(f"✅ {member.display_name} -> {steam_id}")
         await asyncio.sleep(REQUEST_DELAY)
 
     text = (f"📊 **Массовая привязка**\n✅ Добавлено: {len(added)}\n❌ Ошибок: {len(errors)}\n\n")
@@ -1614,7 +1599,7 @@ async def export_members(interaction: discord.Interaction):
     await interaction.followup.send(
         f"✅ Выгружено участников: **{len(members)}** (ботов: {bots_count})\nФайл: `mass_links.json`.",
         ephemeral=True)
-    await log_to_channel(interaction.client, f"📤 /export_members — {len(members)} участников.")
+    await log_to_channel(interaction.client, f"📤 /export_members - {len(members)} участников.")
 
 
 # ============================================================
@@ -1688,13 +1673,13 @@ async def player_list(interaction: discord.Interaction):
             flags.append("❌VAC")
         discord_id = p.get("discord_id") or rev.get(sid)
         if discord_id and interaction.guild.get_member(int(discord_id)):
-            discord_part = f" — {interaction.guild.get_member(int(discord_id)).mention}"
+            discord_part = f" - {interaction.guild.get_member(int(discord_id)).mention}"
         elif discord_id:
-            discord_part = f" — `{discord_id}`"
+            discord_part = f" - `{discord_id}`"
         else:
-            discord_part = f" — {p['discord_name']}" if p.get("discord_name") else ""
+            discord_part = f" - {p['discord_name']}" if p.get("discord_name") else ""
         nick_part = f"{nick} (Steam: {p['steam_nick']})" if p.get("steam_nick") else nick
-        lines.append(f"{' '.join(flags)} `{sid}` — {nick_part}{discord_part}")
+        lines.append(f"{' '.join(flags)} `{sid}` - {nick_part}{discord_part}")
     text = "📊 **База игроков:**\n" + "\n".join(lines[:50])
     if len(lines) > 50:
         text += f"\n...и ещё {len(lines) - 50}"
@@ -1711,16 +1696,16 @@ async def lookup(interaction: discord.Interaction, member: discord.Member):
             f"❌ {member.mention} не привязан к SteamID. Сначала `/link`.", ephemeral=True)
         return
     user = await api.cs2red_user(steam_id)
-    nick = user.get("nick", "—") if user else "—"
+    nick = user.get("nick", "-") if user else "-"
     role_id = user.get("roleId") if user else None
     clan = await api.player_clan(steam_id)
     clan_text = f" (клан: {clan['clan_name']})" if clan else " (без клана)"
     await interaction.followup.send(
         f"🎮 **{nick}**{clan_text}\n👤 Discord: {member.mention} (`{member.id}`)\n"
-        f"SteamID64: `{steam_id}`\nРоль: **{role_display_name(role_id) if role_id else '—'}** "
+        f"SteamID64: `{steam_id}`\nРоль: **{role_display_name(role_id) if role_id else '-'}** "
         f"(roleId={role_id})", ephemeral=True)
     await log_to_channel(interaction.client,
-                         f"🔎 /lookup — {interaction.user.display_name} посмотрел {member.display_name}")
+                         f"🔎 /lookup - {interaction.user.display_name} посмотрел {member.display_name}")
 
 
 # ============================================================
@@ -1841,7 +1826,7 @@ async def activity_set(interaction: discord.Interaction, member: discord.Member,
                    if isinstance(v, (int, float)))
     total = await players_store.update(_set)
     await interaction.response.send_message(
-        f"✅ **{member.display_name}** — сервер `{server.upper()}`: **{hours} ч.**\n"
+        f"✅ **{member.display_name}** - сервер `{server.upper()}`: **{hours} ч.**\n"
         f"📊 Всего за неделю: {build_activity_bar(total, ACTIVITY_GOAL_HOURS)}",
         ephemeral=True)
 
@@ -1915,7 +1900,7 @@ async def activity_all(interaction: discord.Interaction):
                         continue
         data.append((member, hours))
     data.sort(key=lambda x: x[1], reverse=True)
-    lines = [f"{build_activity_bar(h, ACTIVITY_GOAL_HOURS)} — {m.mention}" for m, h in data]
+    lines = [f"{build_activity_bar(h, ACTIVITY_GOAL_HOURS)} - {m.mention}" for m, h in data]
     completed = sum(1 for _, h in data if h >= ACTIVITY_GOAL_HOURS)
     header = f"📊 **Активность всех игроков с ролью {role.mention}**\n\n"
     footer = (f"\n\n📈 **Всего:** {len(data)} игроков\n"
@@ -1950,12 +1935,12 @@ async def setup(ctx):
         "• Отсутствие членства в других кланах.\n"
         "• Возраст **от 12 лет**.\n\n"
         f"**Требования для {CLAN_NAME}:**\n"
-        "• Рейтинг — **от 1.000 ммр**.\n"
-        "• Онлайн — **не менее 3 часов в день**.\n\n"
+        "• Рейтинг - **от 1.000 ммр**.\n"
+        "• Онлайн - **не менее 3 часов в день**.\n\n"
         "**Что указать в заявке:**\n"
         "• Steam-профиль (ссылку или SteamID64)\n\n"
         "**Важно!**\n"
-        "Если вам не напишут в течение 7 дней — заявка отклоняется.\n"
+        "Если вам не напишут в течение 7 дней - заявка отклоняется.\n"
         "После принятия есть 2 дня на вступление.\n\n"
         "По вопросам вступления: обратитесь к администрации.")
     view = ClanView()
@@ -2029,7 +2014,7 @@ async def before_activity_tracker():
 
 @tasks.loop(minutes=SYNC_INTERVAL_MINUTES)
 async def auto_sync():
-    print(f"\n⏰ Автосинхронизация — {now_utc().isoformat()}")
+    print(f"\n⏰ Автосинхронизация - {now_utc().isoformat()}")
     links = links_store.read()
     guild = bot.get_guild(GUILD_ID)
     if not links or guild is None:
@@ -2058,7 +2043,7 @@ async def auto_sync_error(error):
 
 @tasks.loop(hours=BAN_CHECK_INTERVAL_HOURS)
 async def ban_check():
-    print(f"\n🔨 Проверка банов — {now_utc().isoformat()}")
+    print(f"\n🔨 Проверка банов - {now_utc().isoformat()}")
     guild = bot.get_guild(GUILD_ID)
     if guild is None:
         return
@@ -2074,7 +2059,7 @@ async def ban_check_error(error):
 
 @tasks.loop(hours=MUTE_CHECK_INTERVAL_HOURS)
 async def mute_check():
-    print(f"\n🔇 Проверка мутов — {now_utc().isoformat()}")
+    print(f"\n🔇 Проверка мутов - {now_utc().isoformat()}")
     guild = bot.get_guild(GUILD_ID)
     if guild is None:
         return
@@ -2124,9 +2109,11 @@ async def before_auto_sync():
 # ============================================================
 app = Flask(__name__)
 
+
 @app.route('/')
 def health():
     return "Bot is running"
+
 
 def run_health_server():
     port = int(os.environ.get("PORT", 8080))
@@ -2144,46 +2131,3 @@ if __name__ == "__main__":
     else:
         threading.Thread(target=run_health_server, daemon=True).start()
         bot.run(DISCORD_TOKEN)
-
-
-======================================================================
-  ФАЙЛ: requirements.txt  (ЗАВИСИМОСТИ, 90 байт)
-======================================================================
-aiohttp==3.14.3
-discord.py==2.7.1
-python-dotenv==1.2.3
-flask==3.1.3
-beautifulsoup4==4.13.4
-
-
-======================================================================
-  ФАЙЛ: .env.example  (ПРИМЕР НАСТРОЕК (без секретов), 567 байт)
-======================================================================
-# Скопируй в .env и заполни значениями. НЕ коммить .env в git.
-
-# --- Discord ---
-DISCORD_TOKEN=
-GUILD_ID=
-ALLOWED_ROLE_ID=
-AUTO_ROLE_ID=
-BYPASS_ROLE_ID=
-SPAM_VOTE_ROLE_ID=
-
-# --- Клан ---
-CLAN_NAME=TALENT
-CLAN_URL=https://cs2red.ru/clans/id/47
-VOTES_REQUIRED=2
-
-# --- Steam ---
-STEAM_API_KEY=
-
-# --- cs2red (cookies админки) ---
-CS2RED_TOKEN=
-CS2RED_BH=
-CS2RED_YASC=
-CS2RED_BROWSER_ID=
-CS2RED_YANDEXUID=
-
-# --- Данные ---
-# Локально: "." (рядом со скриптом). На Amvera: /data
-DATA_DIR=.
