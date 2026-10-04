@@ -4,12 +4,17 @@ Quantum - бот клана (оптимизированная версия)
 - /check_bans и /check_mutes проверяют только выбранного игрока (автодополнение)
 - Проверка банов/мутов через ПАРСИНГ HTML cs2red.ru (API недоступен)
 - Активным считается наказание, если в строке НЕТ "Размучен"/"Разбанен"
+- /ping - проверка живости бота
+- ИИ-анализ работы бота через LLM7.io (бесплатно, api_key="unused")
+- Автоотчёт ИИ раз в 60 минут в отдельный канал
 """
 import os
 import re
 import json
+import time
 import asyncio
 import datetime
+import platform
 import sys
 import threading
 from pathlib import Path
@@ -83,6 +88,16 @@ VOTES_REQUIRED = int(os.getenv("VOTES_REQUIRED", "2"))
 ACTIVITY_GOAL_HOURS = 8
 ACTIVITY_MIN_HOURS = 8
 APPLY_EMBED_COLOR = 0x2B2D31
+
+# --- AI-анализ / LLM7 ---
+AI_REPORT_CHANNEL_ID = 1554796338661826660      # канал для ИИ-отчётов
+LLM7_BASE_URL = "https://api.llm7.io/v1"
+LLM7_API_KEY = "unused"                          # бесплатный доступ, ключ не нужен
+LLM7_MODEL = "default"
+AI_ANALYSIS_INTERVAL_MINUTES = 60                # раз в час
+
+# Время старта бота (для /ping)
+BOT_START_TIME = time.time()
 
 CS2RED_COOKIES = {k: v for k, v in {
     "token": os.getenv("CS2RED_TOKEN", ""),
@@ -326,6 +341,93 @@ class API:
 
 
 api = API()
+
+
+# ============================================================
+# КЛИЕНТ LLM7.IO (бесплатный ИИ без ключа)
+# ============================================================
+class LLM7Client:
+    """
+    Минимальный клиент к https://api.llm7.io/v1 (OpenAI-совместимый).
+    Бесплатный тариф: api_key можно передавать как "unused".
+    Лимиты free-tier: ~100k токенов/день, 250 req/h, 60 req/m, 1 req/s.
+    """
+
+    def __init__(self, base_url: str = LLM7_BASE_URL,
+                 api_key: str = LLM7_API_KEY,
+                 model: str = LLM7_MODEL):
+        self.base_url = base_url.rstrip("/")
+        self.api_key = api_key
+        self.model = model
+        self._session: aiohttp.ClientSession | None = None
+        self._lock = asyncio.Lock()   # 1 r/s гарантированно
+        self._last_call = 0.0
+
+    async def start(self):
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=60)
+            )
+
+    async def close(self):
+        if self._session and not self._session.closed:
+            await self._session.close()
+
+    async def chat(self, prompt: str, system: str | None = None,
+                   max_tokens: int = 900, temperature: float = 0.5) -> str | None:
+        """Отправить один запрос к LLM7. Возвращает текст ответа или None."""
+        if self._session is None or self._session.closed:
+            await self.start()
+
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        async with self._lock:
+            # соблюдаем 1 запрос/сек на free-тарифе
+            elapsed = time.time() - self._last_call
+            if elapsed < 1.1:
+                await asyncio.sleep(1.1 - elapsed)
+            try:
+                async with self._session.post(
+                    f"{self.base_url}/chat/completions",
+                    json=payload,
+                    headers=headers,
+                ) as r:
+                    self._last_call = time.time()
+                    if r.status == 429:
+                        print("⚠️ LLM7: rate-limit (429)")
+                        return None
+                    if r.status != 200:
+                        body = await r.text()
+                        print(f"⚠️ LLM7: статус {r.status}: {body[:200]}")
+                        return None
+                    data = await r.json(content_type=None)
+            except Exception as e:
+                self._last_call = time.time()
+                print(f"⚠️ LLM7: ошибка запроса: {e}")
+                return None
+
+        try:
+            return data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError):
+            print(f"⚠️ LLM7: неожиданный ответ: {str(data)[:200]}")
+            return None
+
+
+llm7 = LLM7Client()
 
 
 # ============================================================
@@ -1218,7 +1320,7 @@ class ClanView(discord.ui.View):
 # ============================================================
 # БОТ
 # ============================================================
-PUBLIC_COMMANDS = {"link", "unlink"}
+PUBLIC_COMMANDS = {"link", "unlink", "ping"}
 
 
 class MyBot(commands.Bot):
@@ -1240,6 +1342,7 @@ class MyBot(commands.Bot):
 
     async def setup_hook(self):
         await api.start()
+        await llm7.start()
         guild = discord.Object(id=GUILD_ID)
         self.tree.copy_global_to(guild=guild)
         synced = await self.tree.sync(guild=guild)
@@ -1249,9 +1352,11 @@ class MyBot(commands.Bot):
         ban_check.start()
         mute_check.start()
         activity_tracker.start()
+        ai_script_analysis.start()
 
     async def close(self):
         await api.close()
+        await llm7.close()
         await super().close()
 
 
@@ -1686,6 +1791,297 @@ async def lookup(interaction: discord.Interaction, member: discord.Member):
         f"(roleId={role_id})", ephemeral=True)
     await log_to_channel(interaction.client,
                          f"🔎 /lookup - {interaction.user.display_name} посмотрел {member.display_name}")
+
+
+# ============================================================
+# /ping — проверка живой бот или нет
+# ============================================================
+@bot.tree.command(name="ping", description="Проверить, жив ли бот, и узнать аптайм/задержку")
+async def ping(interaction: discord.Interaction):
+    # Замеряем задержку ответа Discord (round-trip)
+    before = time.perf_counter()
+    await interaction.response.defer(ephemeral=False)
+    after = time.perf_counter()
+    api_latency_ms = (after - before) * 1000
+
+    ws_latency_ms = bot.latency * 1000
+    uptime_seconds = int(time.time() - BOT_START_TIME)
+    days, rem = divmod(uptime_seconds, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, seconds = divmod(rem, 60)
+
+    if uptime_seconds < 60:
+        uptime_str = f"{uptime_seconds} сек."
+    elif uptime_seconds < 3600:
+        uptime_str = f"{minutes} мин. {seconds} сек."
+    elif uptime_seconds < 86400:
+        uptime_str = f"{hours} ч. {minutes} мин."
+    else:
+        uptime_str = f"{days} д. {hours} ч. {minutes} мин."
+
+    # Статус связи
+    if ws_latency_ms < 150:
+        status = "🟢 Отличная связь"
+    elif ws_latency_ms < 400:
+        status = "🟡 Нормальная связь"
+    else:
+        status = "🟠 Высокая задержка"
+
+    embed = discord.Embed(title="🏓 Pong!", color=0x2B2D31,
+                          timestamp=now_utc())
+    embed.add_field(name="Статус", value="✅ Бот жив и работает", inline=False)
+    embed.add_field(name="⏱ Аптайм", value=f"`{uptime_str}`", inline=True)
+    embed.add_field(name="📡 WS-задержка", value=f"`{ws_latency_ms:.0f} мс`", inline=True)
+    embed.add_field(name="🌐 HTTP-задержка", value=f"`{api_latency_ms:.0f} мс`", inline=True)
+    embed.add_field(name="Связь", value=status, inline=False)
+    embed.add_field(
+        name="Система",
+        value=f"Python {platform.python_version()} • discord.py {discord.__version__}",
+        inline=False,
+    )
+    embed.set_footer(text=f"Quantum • {utc_stamp()} (UTC)")
+    if bot.user:
+        embed.set_thumbnail(url=bot.user.display_avatar.url)
+
+    await interaction.followup.send(embed=embed)
+
+
+# ============================================================
+# ИИ-АНАЛИЗ СКРИПТА / ПОВЕДЕНИЯ БОТА (раз в 60 минут)
+# ============================================================
+AI_SYSTEM_PROMPT = (
+    "Ты — технический аналитик Discord-бота. Тебе дают метрики работы "
+    "бота и статистику по его задачам. Твоя задача — оценить, насколько "
+    "поведение бота выглядит «роботизированным» (автоматизированным, "
+    "по расписанию, без вариативности), выявить риски и предложить "
+    "краткие улучшения. Отвечай СЖАТО на русском языке, без воды, "
+    "по пунктам, не более 900 токенов."
+)
+
+
+def _collect_runtime_stats() -> dict:
+    """Собирает метрики текущего состояния бота."""
+    links = links_store.read()
+    players = players_store.read()
+    bans = bans_store.read()
+    moders = moders_store.read()
+    votes = votes_store.read()
+
+    # Подсчёт активных наказаний и истекающих запретов
+    now = now_utc()
+    active_temp_bans = 0
+    perm_bans = 0
+    for entry in bans.values():
+        if not isinstance(entry, dict):
+            continue
+        t = entry.get("type")
+        if t == "perm":
+            perm_bans += 1
+        elif t == "temp":
+            try:
+                until = datetime.datetime.fromisoformat(entry.get("until") or "")
+                if until.tzinfo is None:
+                    until = until.replace(tzinfo=UTC)
+                if until > now:
+                    active_temp_bans += 1
+            except Exception:
+                pass
+
+    guild = bot.get_guild(GUILD_ID) if GUILD_ID else None
+    members_total = guild.member_count if guild else 0
+
+    # Статистика активностей
+    total_hours = 0.0
+    active_players = 0
+    for p in players.values():
+        act = p.get("activity") if isinstance(p, dict) else None
+        if isinstance(act, dict) and act:
+            active_players += 1
+            for v in act.values():
+                try:
+                    total_hours += float(v)
+                except (TypeError, ValueError):
+                    continue
+
+    return {
+        "uptime_sec": int(time.time() - BOT_START_TIME),
+        "ws_latency_ms": round(bot.latency * 1000, 1),
+        "guild_members": members_total,
+        "linked_users": len(links),
+        "players_in_db": len(players),
+        "active_players": active_players,
+        "total_tracked_hours": round(total_hours, 2),
+        "moderators_count": len(moders),
+        "votes_records": len(votes),
+        "perm_bans": perm_bans,
+        "active_temp_bans": active_temp_bans,
+        "tasks_running": {
+            "auto_sync": auto_sync.is_running(),
+            "ban_check": ban_check.is_running(),
+            "mute_check": mute_check.is_running(),
+            "activity_tracker": activity_tracker.is_running(),
+            "ai_script_analysis": ai_script_analysis.is_running(),
+        },
+        "sync_interval_min": SYNC_INTERVAL_MINUTES,
+        "ban_interval_h": BAN_CHECK_INTERVAL_HOURS,
+        "mute_interval_h": MUTE_CHECK_INTERVAL_HOURS,
+        "activity_track_sec": ACTIVITY_TRACK_SECONDS,
+        "ai_interval_min": AI_ANALYSIS_INTERVAL_MINUTES,
+    }
+
+
+def _build_ai_prompt(stats: dict, prev_report: str | None = None) -> str:
+    lines = [
+        "Проанализируй работу Discord-бота клана (Quantum).",
+        "",
+        "=== МЕТРИКИ ===",
+        f"Аптайм (сек): {stats['uptime_sec']}",
+        f"WS-задержка (мс): {stats['ws_latency_ms']}",
+        f"Участников на сервере: {stats['guild_members']}",
+        f"Привязанных Discord↔Steam: {stats['linked_users']}",
+        f"Игроков в БД: {stats['players_in_db']} (с активностью: {stats['active_players']})",
+        f"Всего учтённых часов активности: {stats['total_tracked_hours']}",
+        f"Модераторов в списке доступа: {stats['moderators_count']}",
+        f"Записей голосований: {stats['votes_records']}",
+        f"Перманентных запретов: {stats['perm_bans']}",
+        f"Активных временных запретов: {stats['active_temp_bans']}",
+        "",
+        "=== ФОНОВЫЕ ЗАДАЧИ ===",
+    ]
+    for name, running in stats["tasks_running"].items():
+        lines.append(f"- {name}: {'запущена' if running else 'ОСТАНОВЛЕНА'}")
+    lines += [
+        f"- auto_sync: каждые {stats['sync_interval_min']} мин",
+        f"- ban_check: каждые {stats['ban_interval_h']} ч",
+        f"- mute_check: каждые {stats['mute_interval_h']} ч",
+        f"- activity_tracker: каждые {stats['activity_track_sec']} сек",
+        f"- ai_script_analysis: каждые {stats['ai_interval_min']} мин",
+        "",
+        "=== ЗАДАНИЕ ===",
+        "1) Оцени «роботизированность» поведения бота по шкале 0-10 "
+        "(0 = полностью ручное, 10 = максимально автоматизировано). "
+        "Объясни оценку 2-3 пунктами.",
+        "2) Укажи 3 главных риска (например: rate-limit HTML-парсинга, "
+        "дублирование задач, пропуски проверок).",
+        "3) Дай 3-4 коротких практических улучшения.",
+        "4) Сделай итоговый вывод в 1-2 строки.",
+    ]
+    if prev_report:
+        lines += [
+            "",
+            "=== ПРЕДЫДУЩИЙ ОТЧЁТ (для сравнения) ===",
+            prev_report[:1500],
+        ]
+    return "\n".join(lines)
+
+
+async def _run_ai_analysis_once() -> str | None:
+    """Один цикл анализа + отправка отчёта в канал."""
+    stats = _collect_runtime_stats()
+    prev = None
+    try:
+        prev_path = data_path("ai_last_report.txt")
+        if prev_path.exists():
+            prev = prev_path.read_text(encoding="utf-8")
+    except Exception:
+        prev = None
+
+    prompt = _build_ai_prompt(stats, prev)
+    answer = await llm7.chat(prompt, system=AI_SYSTEM_PROMPT,
+                             max_tokens=900, temperature=0.4)
+
+    channel = bot.get_channel(AI_REPORT_CHANNEL_ID)
+    if channel is None:
+        print(f"⚠️ Канал отчётов ИИ {AI_REPORT_CHANNEL_ID} не найден.")
+        return None
+
+    if answer is None:
+        # Отчёт без ИИ, чтобы канал не молчал
+        embed = discord.Embed(
+            title="🤖 ИИ-анализ недоступен",
+            description=(
+                "Не удалось получить ответ от LLM7.io. "
+                "Ниже — сырые метрики для ручной проверки."
+            ),
+            color=0xED4245,
+            timestamp=now_utc(),
+        )
+    else:
+        embed = discord.Embed(
+            title="🤖 ИИ-анализ работы бота (Quantum)",
+            color=0x5865F2,
+            timestamp=now_utc(),
+        )
+        # Discord ограничивает описание 4096 символами
+        embed.description = answer[:4000]
+
+    # Всегда добавляем метрики
+    uptime = stats["uptime_sec"]
+    d, r = divmod(uptime, 86400)
+    h, r = divmod(r, 3600)
+    m, _ = divmod(r, 60)
+    uptime_str = f"{d}д {h}ч {m}м"
+
+    embed.add_field(name="⏱ Аптайм", value=f"`{uptime_str}`", inline=True)
+    embed.add_field(name="📡 WS-пинг", value=f"`{stats['ws_latency_ms']} мс`", inline=True)
+    embed.add_field(name="👥 Привязано", value=f"`{stats['linked_users']}`", inline=True)
+    embed.add_field(name="🧩 Задач активно",
+                    value=f"`{sum(1 for v in stats['tasks_running'].values() if v)}/5`",
+                    inline=True)
+    embed.add_field(name="🚫 Запретов",
+                    value=f"`perm: {stats['perm_bans']} / temp: {stats['active_temp_bans']}`",
+                    inline=True)
+    embed.add_field(name="📊 Часов активности",
+                    value=f"`{stats['total_tracked_hours']}`", inline=True)
+
+    if bot.user:
+        embed.set_footer(text=f"Quantum AI Monitor • {utc_stamp()} (UTC)",
+                         icon_url=bot.user.display_avatar.url)
+
+    try:
+        await channel.send(embed=embed)
+    except Exception as e:
+        print(f"⚠️ Не удалось отправить ИИ-отчёт: {e}")
+        return None
+
+    if answer:
+        try:
+            data_path("ai_last_report.txt").write_text(answer, encoding="utf-8")
+        except Exception as e:
+            print(f"⚠️ Не удалось сохранить последний ИИ-отчёт: {e}")
+
+    return answer
+
+
+@tasks.loop(minutes=AI_ANALYSIS_INTERVAL_MINUTES)
+async def ai_script_analysis():
+    print(f"\n🤖 ИИ-анализ бота - {now_utc().isoformat()}")
+    try:
+        await _run_ai_analysis_once()
+    except Exception as e:
+        print(f"⚠️ ai_script_analysis упал: {e}")
+
+
+@ai_script_analysis.before_loop
+async def before_ai_script_analysis():
+    await bot.wait_until_ready()
+    # Небольшая задержка, чтобы бот успел поднять все остальные задачи
+    await asyncio.sleep(30)
+
+
+@ai_script_analysis.error
+async def ai_script_analysis_error(error):
+    print(f"⚠️ ai_script_analysis ошибка: {error}")
+
+
+@bot.tree.command(name="ai_report", description="Запустить ИИ-анализ работы бота вручную")
+async def ai_report(interaction: discord.Interaction):
+    if not await _admin_guard(interaction):
+        return
+    await interaction.response.defer(ephemeral=True)
+    await interaction.followup.send("🤖 Запускаю анализ, отчёт придёт в канал мониторинга.",
+                                    ephemeral=True)
+    asyncio.create_task(_run_ai_analysis_once())
 
 
 # ============================================================
