@@ -1,5 +1,5 @@
 """
-Quantum - бот клана (v8: рабочий /link_all + защита ролей от сбоя cs2red)
+Quantum - бот клана (v9: диагностика + flush=True + защита ролей)
 """
 import os
 import re
@@ -28,6 +28,9 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
+# Принудительный unbuffered вывод
+os.environ.setdefault("PYTHONUNBUFFERED", "1")
+
 load_dotenv()
 
 DATA_DIR = Path(os.getenv("DATA_DIR", ".")).resolve()
@@ -43,6 +46,11 @@ UTC = datetime.UTC
 
 def now_utc() -> datetime.datetime:
     return datetime.datetime.now(UTC)
+
+
+def log(msg: str):
+    """Единый логгер с flush."""
+    print(msg, flush=True)
 
 
 # ============================================================
@@ -155,7 +163,7 @@ CLAN_ROLE_MAP = {
 SYNC_INTERVAL_MINUTES = int(os.getenv("SYNC_INTERVAL_MINUTES", "15"))
 BAN_CHECK_INTERVAL_HOURS = 24
 MUTE_CHECK_INTERVAL_HOURS = 2
-REQUEST_DELAY = 0.3  # было 1.0, ускоряем массовые операции
+REQUEST_DELAY = 0.3
 
 ACTIVITY_TRACK_SECONDS = 60
 CLANS_CACHE_TTL = 300
@@ -239,7 +247,7 @@ def _write_error_to_file(context: str, exc):
         with open(data_path("error_log.txt"), "a", encoding="utf-8") as f:
             f.write(f"[{ts}] {context}\n{tb}\n{'=' * 60}\n")
     except Exception as e:
-        print(f"⚠️ error_log: {e}")
+        log(f"⚠️ error_log: {e}")
 
 
 NET_ERRORS = (
@@ -252,7 +260,7 @@ NET_ERRORS = (
 
 async def log_error(bot: commands.Bot, context: str, exc):
     _write_error_to_file(context, exc)
-    print(f"❌ [{context}] {exc}")
+    log(f"❌ [{context}] {exc}")
     if isinstance(exc, NET_ERRORS):
         return
     channel = bot.get_channel(ERROR_LOG_CHANNEL_ID) if ERROR_LOG_CHANNEL_ID else None
@@ -263,7 +271,7 @@ async def log_error(bot: commands.Bot, context: str, exc):
     try:
         await safe_send(channel, f"❌ **Ошибка**\n**Контекст:** `{context}`\n```\n{text[:1500]}\n```")
     except Exception as e:
-        print(f"⚠️ не смог отправить лог: {e}")
+        log(f"⚠️ не смог отправить лог: {e}")
 
 
 # ============================================================
@@ -295,14 +303,14 @@ async def safe_send(target, *args, retries: int = 3, **kwargs):
             last_exc = e
             if e.status == 429:
                 wait = getattr(e, "retry_after", None) or 5.0
-                print(f"⏱ 429, жду {wait:.1f} сек (попытка {attempt + 1}/{retries})")
+                log(f"⏱ 429, жду {wait:.1f} сек (попытка {attempt + 1}/{retries})")
                 await asyncio.sleep(wait + 0.5)
                 continue
             if e.status >= 500 and attempt < retries - 1:
                 await asyncio.sleep(3)
                 continue
             raise
-    print(f"❌ safe_send: не отправил после {retries} попыток: {last_exc}")
+    log(f"❌ safe_send: не отправил после {retries} попыток: {last_exc}")
     return None
 
 
@@ -314,7 +322,7 @@ class API:
         self.session: aiohttp.ClientSession | None = None
         self.sem = asyncio.Semaphore(4)
         self._clans_cache = {"ts": 0.0, "data": None}
-        self.last_status: int | None = None   # ← для диагностики 403
+        self.last_status: int | None = None
 
     async def start(self):
         connector = aiohttp.TCPConnector(
@@ -327,7 +335,7 @@ class API:
             timeout=aiohttp.ClientTimeout(total=25, connect=15),
             connector=connector,
         )
-        print(f"🌐 API session. Cookies: {len(CS2RED_COOKIES)}, Headers: {len(CS2RED_HEADERS)}")
+        log(f"🌐 API session started. Cookies: {len(CS2RED_COOKIES)}, Headers: {len(CS2RED_HEADERS)}")
 
     async def close(self):
         if self.session and not self.session.closed:
@@ -342,7 +350,7 @@ class API:
                     async with self.session.get(url, params=params) as r:
                         self.last_status = r.status
                         if r.status == 403:
-                            print(f"🔴 403 Forbidden на {url} — cookies не приняты")
+                            log(f"🔴 403 Forbidden на {url} — cookies не приняты")
                             return None
                         if r.status == 429:
                             await asyncio.sleep(3)
@@ -353,10 +361,10 @@ class API:
                 if attempt < 2:
                     await asyncio.sleep(2 ** attempt)
                     continue
-                print(f"⚠️ GET {url}: сетевой сбой после 3 попыток: {e}")
+                log(f"⚠️ GET {url}: сетевой сбой после 3 попыток: {e}")
                 return None
             except Exception as e:
-                print(f"⚠️ GET {url}: {e}")
+                log(f"⚠️ GET {url}: {e}")
                 return None
         return None
 
@@ -369,20 +377,20 @@ class API:
                     async with self.session.get(url) as r:
                         self.last_status = r.status
                         if r.status == 403:
-                            print(f"🔴 403 Forbidden на {url}")
+                            log(f"🔴 403 Forbidden на {url}")
                             return None
                         if r.status != 200:
-                            print(f"⚠️ GET {url}: статус {r.status}")
+                            log(f"⚠️ GET {url}: статус {r.status}")
                             return None
                         return await r.text()
             except NET_ERRORS as e:
                 if attempt < 2:
                     await asyncio.sleep(2 ** attempt)
                     continue
-                print(f"⚠️ GET {url}: сетевой сбой: {e}")
+                log(f"⚠️ GET {url}: сетевой сбой: {e}")
                 return None
             except Exception as e:
-                print(f"⚠️ GET {url}: {e}")
+                log(f"⚠️ GET {url}: {e}")
                 return None
         return None
 
@@ -528,25 +536,25 @@ class LLM7Client:
                     ) as r:
                         self._last_call = time.time()
                         if r.status == 429:
-                            print("⚠️ LLM7: rate-limit (429)")
+                            log("⚠️ LLM7: rate-limit (429)")
                             return None
                         if r.status != 200:
                             body = await r.text()
-                            print(f"⚠️ LLM7: статус {r.status}: {body[:200]}")
+                            log(f"⚠️ LLM7: статус {r.status}: {body[:200]}")
                             return None
                         data = await r.json(content_type=None)
                         try:
                             return data["choices"][0]["message"]["content"]
                         except (KeyError, IndexError, TypeError):
-                            print(f"⚠️ LLM7: неожиданный ответ")
+                            log(f"⚠️ LLM7: неожиданный ответ")
                             return None
                 except asyncio.TimeoutError:
-                    print(f"⚠️ LLM7: таймаут {use_timeout} сек")
+                    log(f"⚠️ LLM7: таймаут {use_timeout} сек")
                     if attempt == 2:
                         return None
                 except Exception as e:
                     self._last_call = time.time()
-                    print(f"⚠️ LLM7: ошибка: {e}")
+                    log(f"⚠️ LLM7: ошибка: {e}")
                     return None
         return None
 
@@ -778,7 +786,7 @@ async def build_player_profile(guild, discord_id, steam_id=None):
 async def send_player_report(bot, profile):
     channel = bot.get_channel(DB_CHANNEL_ID) if DB_CHANNEL_ID else None
     if not channel:
-        print(f"⚠️ Канал {DB_CHANNEL_ID} не найден.")
+        log(f"⚠️ Канал {DB_CHANNEL_ID} не найден.")
         return
     embed = discord.Embed(title="👤 Профиль игрока", color=0x2B2D31, timestamp=now_utc())
 
@@ -860,13 +868,11 @@ def utc_stamp() -> str:
 
 
 # ============================================================
-# СИНХРОНИЗАЦИЯ РОЛЕЙ (с защитой от сбоя API)
+# СИНХРОНИЗАЦИЯ РОЛЕЙ
 # ============================================================
 async def sync_role_by_id(guild, member, steam_id):
-    """Синхронизация роли по level. НЕ трогает роли, если cs2red недоступен."""
     user = await api.cs2red_user(steam_id)
     if user is None:
-        # Возможные причины: 403, 404, timeout. Роли НЕ трогаем.
         return f"⚠️ {member.display_name}: cs2red не ответил, роль не тронута"
 
     tn = ROLE_MAP.get(user.get("roleId"))
@@ -898,7 +904,6 @@ async def sync_role_by_id(guild, member, steam_id):
 
 
 async def sync_clan_role_by_id(guild, member, steam_id):
-    """Синхронизация роли клана. НЕ трогает роли, если cs2red недоступен."""
     if not CLAN_ROLE_MAP:
         return f"ℹ️ CLAN_ROLE_MAP пуст"
 
@@ -907,13 +912,17 @@ async def sync_clan_role_by_id(guild, member, steam_id):
     if user is None:
         return f"⚠️ {member.display_name}: cs2red не ответил, роли клана не тронуты"
 
-    # 2) теперь точно знаем — API работает, можно принимать решения
+    # 2) проверяем, что /api/clans тоже живой
+    clans_raw = await api._get_json("https://cs2red.ru/api/clans")
+    if not clans_raw or not clans_raw.get("success"):
+        return f"⚠️ {member.display_name}: /api/clans не ответил, роли клана не тронуты"
+
+    # 3) теперь точно можно принимать решения
     clan = await api.player_clan(steam_id)
     managed = set(CLAN_ROLE_MAP.values())
     held = [r for r in member.roles if r.id in managed]
 
     if clan is None:
-        # Игрок точно без клана — снимаем
         for r in held:
             try:
                 await member.remove_roles(r)
@@ -966,7 +975,7 @@ async def check_punishment_roles(bot, guild, kind):
         return [f"❌ Роль {cfg['role_id']} не найдена"]
     links = links_store.read()
     actions = []
-    print(f"{cfg['emoji']} Проверка {kind} ({len(links)} игроков)...")
+    log(f"{cfg['emoji']} Проверка {kind} ({len(links)} игроков)...")
     for did, sid in list(links.items()):
         m = guild.get_member(int(did))
         if m is None:
@@ -1018,7 +1027,7 @@ async def close_application_thread(thread, closed_by, reason):
                 except Exception:
                     pass
     except Exception as e:
-        print(f"⚠️ close_thread: {e}")
+        log(f"⚠️ close_thread: {e}")
 
 
 # ============================================================
@@ -1258,7 +1267,7 @@ class QuestionnaireModal(discord.ui.Modal, title="Заявка в клан"):
                     view.update_labels(msg.id)
                     await msg.edit(view=view)
             except Exception as ex:
-                print(f"⚠️ Канал заявок: {ex}")
+                log(f"⚠️ Канал заявок: {ex}")
         await safe_send(i.followup, "✅ Заявка отправлена!", ephemeral=True)
         asyncio.create_task(_create_application_thread(i, e))
 
@@ -1294,7 +1303,7 @@ async def _create_application_thread(i, e):
             view.update_labels(msg.id)
             await msg.edit(view=view)
     except Exception as ex:
-        print(f"⚠️ Ветка: {ex}")
+        log(f"⚠️ Ветка: {ex}")
 
 
 class ClanSelect(discord.ui.Select):
@@ -1336,18 +1345,36 @@ class MyBot(commands.Bot):
         return True
 
     async def setup_hook(self):
-        await api.start()
-        await llm7.start()
-        g = discord.Object(id=GUILD_ID)
-        self.tree.copy_global_to(guild=g)
-        synced = await self.tree.sync(guild=g)
-        print(f"✅ Команд: {len(synced)}")
-        self.add_view(ApplicationManagement())
-        auto_sync.start()
-        ban_check.start()
-        mute_check.start()
-        activity_tracker.start()
-        ai_script_analysis.start()
+        try:
+            log("🔧 setup_hook: начало")
+            await api.start()
+            log("✅ API session ready")
+            await llm7.start()
+            log("✅ LLM7 session ready")
+
+            if not GUILD_ID:
+                log("❌ GUILD_ID = 0 — синхронизация команд не выполнится!")
+                return
+
+            g = discord.Object(id=GUILD_ID)
+            self.tree.copy_global_to(guild=g)
+            log(f"🔄 Синхронизация команд для guild {GUILD_ID}...")
+            synced = await self.tree.sync(guild=g)
+            log(f"✅ Команд синхронизировано: {len(synced)}")
+
+            self.add_view(ApplicationManagement())
+            log("✅ ApplicationManagement view добавлен")
+
+            auto_sync.start()
+            ban_check.start()
+            mute_check.start()
+            activity_tracker.start()
+            ai_script_analysis.start()
+            log("✅ Все 5 фоновых задач запущены")
+        except Exception as e:
+            log(f"❌ ОШИБКА в setup_hook: {type(e).__name__}: {e}")
+            traceback.print_exc()
+            raise
 
     async def close(self):
         await api.close()
@@ -1375,24 +1402,26 @@ async def on_app_command_error(i, err):
 
 @bot.event
 async def on_ready():
-    print(f"✅ Бот {bot.user} готов!")
-    print(f"🔑 LLM7_API_KEY: {'ЗАДАН' if LLM7_API_KEY and LLM7_API_KEY != 'unused' else 'unused'}")
-    print(f"🍪 CS2RED cookies: {len(CS2RED_COOKIES)} шт.")
+    log(f"✅ Бот {bot.user} готов!")
+    log(f"🆔 GUILD_ID: {GUILD_ID}")
+    log(f"🔑 LLM7_API_KEY: {'ЗАДАН' if LLM7_API_KEY and LLM7_API_KEY != 'unused' else 'unused'}")
+    log(f"🍪 CS2RED cookies: {len(CS2RED_COOKIES)} шт.")
+    log(f"📡 Guilds: {[g.name for g in bot.guilds]}")
     asyncio.create_task(_warmup_llm7())
 
 
 async def _warmup_llm7():
     await asyncio.sleep(5)
-    print("🔥 Прогрев LLM7...")
+    log("🔥 Прогрев LLM7...")
     for m in ("fast", "default"):
         try:
             r = await llm7.chat("ping", system="Ответь: pong", model=m,
                                 max_tokens=10, timeout=40)
-            print(f"🔥 [{m}]: {'OK' if r else 'FAIL'}")
+            log(f"🔥 [{m}]: {'OK' if r else 'FAIL'}")
             if r:
                 break
         except Exception as e:
-            print(f"⚠️ [{m}]: {e}")
+            log(f"⚠️ [{m}]: {e}")
 
 
 def admin_only(i):
@@ -1571,7 +1600,7 @@ async def check_mutes(i, member: str):
 
 
 # ============================================================
-# /link_all — РАБОЧАЯ ВЕРСИЯ (с прогрессом и без зависания)
+# /link_all
 # ============================================================
 @bot.tree.command(name="link_all", description="Массовая привязка из mass_links.json")
 async def link_all(i):
@@ -1600,7 +1629,7 @@ async def link_all(i):
         return
 
     total = len(data)
-    print(f"📥 /link_all: {total} записей")
+    log(f"📥 /link_all: {total} записей")
 
     added = []
     skip_not_sid = []
@@ -1615,52 +1644,44 @@ async def link_all(i):
     for did, sid in data.items():
         sid = str(sid).strip()
 
-        # Discord ID корректный?
         if not (did.isdigit() and 17 <= len(did) <= 20):
             other.append(f"`{did}`: не Discord ID")
             processed += 1
             continue
 
-        # SteamID корректный? (если нет — это ник, пропускаем)
         if not (sid.isdigit() and len(sid) == 17 and sid.startswith("7656119")):
             skip_not_sid.append(f"`{did}`: не SteamID (`{sid}`)")
             processed += 1
             continue
 
-        # Уже привязан к этому же SteamID — пропускаем без запроса к API
         existing = links_store.read()
         if existing.get(str(did)) == sid:
             already.append(f"`{did}` → `{sid}`")
             processed += 1
             continue
 
-        # Участник есть на сервере?
         m = i.guild.get_member(int(did))
         if m is None:
             no_member.append(f"`{did}` ({sid})")
             processed += 1
             continue
 
-        # SteamID не занят другим Discord?
         owner = next((d for d, s in existing.items() if s == sid), None)
         if owner and owner != str(did):
             other.append(f"{m.display_name}: SteamID занят <@{owner}>")
             processed += 1
             continue
 
-        # Игрок есть на cs2red?
         user = await api.cs2red_user(sid)
         if user is None:
             not_on_site.append(f"{m.display_name}: `{sid}`")
             processed += 1
             continue
 
-        # Привязываем
         await links_store.update(lambda d: d.update({str(did): sid}))
         added.append(f"✅ {m.display_name} → `{sid}` (cs2red: {user.get('nick', '-')})")
         processed += 1
 
-        # Прогресс раз в 20 записей
         if processed - last_progress >= 20:
             last_progress = processed
             try:
@@ -1830,6 +1851,7 @@ async def ping(i):
     e.add_field(name="📡 WS", value=f"`{ws:.0f} мс`", inline=True)
     e.add_field(name="Связь", value=status, inline=False)
     e.add_field(name="🍪 Cookies", value=f"`{len(CS2RED_COOKIES)}`", inline=True)
+    e.add_field(name="🆔 Guild", value=f"`{GUILD_ID}`", inline=True)
     e.add_field(name="Python",
                 value=f"{platform.python_version()} • discord.py {discord.__version__}",
                 inline=False)
@@ -2127,7 +2149,7 @@ async def activity_tracker():
         seen["_seeded"] = True
         if matched:
             await players_store.save(db)
-            print(f"🕐 Трекер: +{matched}")
+            log(f"🕐 Трекер: +{matched}")
         await seen_store.save(seen)
     except Exception as e:
         await log_error(bot, "activity_tracker", e)
@@ -2141,7 +2163,7 @@ async def before_activity_tracker():
 @tasks.loop(minutes=SYNC_INTERVAL_MINUTES)
 async def auto_sync():
     try:
-        print(f"\n⏰ auto_sync {now_utc().isoformat()}")
+        log(f"⏰ auto_sync {now_utc().isoformat()}")
         links = links_store.read()
         guild = bot.get_guild(GUILD_ID)
         if not links or guild is None:
@@ -2172,7 +2194,7 @@ async def auto_sync_error(err):
 @tasks.loop(hours=BAN_CHECK_INTERVAL_HOURS)
 async def ban_check():
     try:
-        print(f"\n🔨 ban_check {now_utc().isoformat()}")
+        log(f"🔨 ban_check {now_utc().isoformat()}")
         g = bot.get_guild(GUILD_ID)
         if g is None:
             return
@@ -2191,7 +2213,7 @@ async def ban_check_error(err):
 @tasks.loop(hours=MUTE_CHECK_INTERVAL_HOURS)
 async def mute_check():
     try:
-        print(f"\n🔇 mute_check {now_utc().isoformat()}")
+        log(f"🔇 mute_check {now_utc().isoformat()}")
         g = bot.get_guild(GUILD_ID)
         if g is None:
             return
@@ -2295,158 +2317,4 @@ def _collect_runtime_stats():
         "active_temp_bans": atb,
         "ai_total": int(ai_st.get("total", 0)),
         "ai_success": int(ai_st.get("success", 0)),
-        "ai_fail": int(ai_st.get("fail", 0)),
-        "cookies_count": len(CS2RED_COOKIES),
-        "tasks_running": {
-            "auto_sync": auto_sync.is_running(),
-            "ban_check": ban_check.is_running(),
-            "mute_check": mute_check.is_running(),
-            "activity_tracker": activity_tracker.is_running(),
-            "ai_script_analysis": ai_script_analysis.is_running(),
-        },
-        "sync_interval_min": SYNC_INTERVAL_MINUTES,
-        "ai_interval_min": AI_ANALYSIS_INTERVAL_MINUTES,
-    }
-
-
-def _build_ai_prompt(s, prev=None):
-    lines = [
-        "Проанализируй работу Discord-бота (Quantum).",
-        "",
-        "=== МЕТРИКИ ===",
-        f"Аптайм (сек): {s['uptime_sec']}",
-        f"WS-задержка (мс): {s['ws_latency_ms']}",
-        f"Участников: {s['guild_members']}",
-        f"Привязано: {s['linked_users']}",
-        f"Игроков в БД: {s['players_in_db']} (активных: {s['active_players']})",
-        f"Часов активности: {s['total_tracked_hours']}",
-        f"Модераторов: {s['moderators_count']}",
-        f"Перм.запретов: {s['perm_bans']}",
-        f"Временных: {s['active_temp_bans']}",
-        f"Запросов /ai: {s['ai_total']} (ok {s['ai_success']}, fail {s['ai_fail']})",
-        f"CS2RED cookies: {s['cookies_count']}",
-        "",
-        "=== ЗАДАЧИ ===",
-    ]
-    for n, r in s["tasks_running"].items():
-        lines.append(f"- {n}: {'on' if r else 'OFF'}")
-    lines += ["", "=== ЗАДАНИЕ ===",
-              "1) Оцени роботизированность 0-10.",
-              "2) 3 риска.",
-              "3) 3-4 улучшения.",
-              "4) Итог."]
-    if prev:
-        lines += ["", "=== ПРЕДЫДУЩИЙ ===", prev[:1500]]
-    return "\n".join(lines)
-
-
-async def _run_ai_analysis_once():
-    global _FIRST_AI_REPORT_DONE
-    s = _collect_runtime_stats()
-    prev = None
-    try:
-        p = data_path("ai_last_report.txt")
-        if p.exists():
-            prev = p.read_text(encoding="utf-8")
-    except Exception:
-        pass
-    ans, src = await ai_chat_with_fallback(
-        prompt=_build_ai_prompt(s, prev), system=AI_SYSTEM_PROMPT, history=None,
-        model="default", max_tokens=700, temperature=0.4, timeout=45)
-    if ans is None and not _FIRST_AI_REPORT_DONE:
-        print("🤖 первый ИИ-анализ пропущен")
-        _FIRST_AI_REPORT_DONE = True
-        return None
-    _FIRST_AI_REPORT_DONE = True
-    ch = bot.get_channel(AI_REPORT_CHANNEL_ID) if AI_REPORT_CHANNEL_ID else None
-    if ch is None:
-        await log_error(bot, "ai_report", f"Канал {AI_REPORT_CHANNEL_ID} не найден")
-        return None
-    if ans is None:
-        e = discord.Embed(title="🤖 ИИ-анализ недоступен",
-                          description="LLM7 не ответил.", color=0xED4245,
-                          timestamp=now_utc())
-    else:
-        e = discord.Embed(title="🤖 ИИ-анализ бота (Quantum)", color=0x5865F2,
-                          timestamp=now_utc())
-        e.description = ans[:4000]
-    up = s["uptime_sec"]
-    d, r = divmod(up, 86400)
-    h, r = divmod(r, 3600)
-    m, _ = divmod(r, 60)
-    e.add_field(name="⏱", value=f"`{d}д {h}ч {m}м`", inline=True)
-    e.add_field(name="📡", value=f"`{s['ws_latency_ms']} мс`", inline=True)
-    e.add_field(name="👥", value=f"`{s['linked_users']}`", inline=True)
-    e.add_field(name="🧩",
-                value=f"`{sum(1 for v in s['tasks_running'].values() if v)}/5`", inline=True)
-    e.add_field(name="🚫",
-                value=f"`{s['perm_bans']}/{s['active_temp_bans']}`", inline=True)
-    e.add_field(name="🤖",
-                value=f"`{s['ai_success']}/{s['ai_fail']}`", inline=True)
-    e.add_field(name="🍪", value=f"`{s['cookies_count']}`", inline=True)
-    if bot.user:
-        e.set_footer(text=f"Quantum • {utc_stamp()}", icon_url=bot.user.display_avatar.url)
-    await safe_send(ch, embed=e)
-    if ans:
-        try:
-            data_path("ai_last_report.txt").write_text(ans, encoding="utf-8")
-        except Exception:
-            pass
-    return ans
-
-
-@tasks.loop(minutes=AI_ANALYSIS_INTERVAL_MINUTES)
-async def ai_script_analysis():
-    try:
-        print(f"\n🤖 ai_script_analysis {now_utc().isoformat()}")
-        await _run_ai_analysis_once()
-    except Exception as e:
-        await log_error(bot, "ai_script_analysis", e)
-
-
-@ai_script_analysis.before_loop
-async def before_ai_script_analysis():
-    await bot.wait_until_ready()
-    await asyncio.sleep(180)
-
-
-@ai_script_analysis.error
-async def ai_script_analysis_error(err):
-    await log_error(bot, "ai_script_analysis.error", err)
-
-
-@bot.tree.command(name="ai_report", description="Запустить ИИ-анализ вручную")
-async def ai_report(i):
-    if not await _admin_guard(i):
-        return
-    await i.response.defer(ephemeral=True)
-    await safe_send(i.followup, "🤖 Запускаю анализ…", ephemeral=True)
-    asyncio.create_task(_run_ai_analysis_once())
-
-
-# ============================================================
-# HTTP-СЕРВЕР ДЛЯ RENDER
-# ============================================================
-app = Flask(__name__)
-
-
-@app.route("/")
-def health():
-    return "Bot is running"
-
-
-def run_health_server():
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
-
-
-# ============================================================
-# ЗАПУСК
-# ============================================================
-if __name__ == "__main__":
-    if not DISCORD_TOKEN:
-        print("❌ DISCORD_TOKEN не задан!")
-    elif GUILD_ID == 0:
-        print("❌ GUILD_ID не задан!")
-    else:
-        threading.Thread(target=run_health_server, daemon=True).start()
-        bot.run(DISCORD_TOKEN)
+        "ai_fail": int(ai_st.get("fail", 0
