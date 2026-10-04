@@ -1,0 +1,6144 @@
+{
+  "76561199817682341": {
+    "discord_id": "1113899288192356402",
+    "updated_at": "2026-09-30T17:46:01.493395",
+    "discord_name": "rose",
+    "discord_joined": "2024-05-05T13:01:04.894000+00:00",
+    "steamid64": "76561199817682341",
+    "cs2red_nick": "Randomik",
+    "cs2red_role_id": 1,
+    "cs2red_role_name": "Игрок",
+    "cs2red_bans": [
+      {
+        "id": 48166,
+        "adminId": 148519,
+        "actionId": 164738,
+        "reason": "П.П. 1.4",
+        "timestamp": 1737909607,
+        "endTimeStamp": 1737952807,
+        "unbanId": null,
+        "user": {
+          "steamid64": "76561198094437984",
+          "nick": "Theonlyonewhocanbeatmeisme",
+          "avatarHash": "28b85a5b327a9337b938ce61e9183ca1c4a70928",
+          "verify": false,
+          "plusEndingDate": 1790721468,
+          "plusPurchaseDate": 1738632052,
+          "ambassadorSinceAt": null,
+          "id": 148519,
+          "roleId": 7
+        }
+      }
+    ],
+    "cs2red_mutes": [
+      {
+        "id": 92126,
+        "adminId": 8081,
+        "actionId": 164738,
+        "typeId": 1,
+        "reason": "П.П.2.2",
+        "timestamp": 1790769435,
+        "endTimeStamp": 1790773035,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199162568168",
+          "nick": "not me",
+          "avatarHash": "23ec2ec9948c746c4423933a96fd9c6dc8daa394",
+          "plusEndingDate": 1797593437,
+          "plusPurchaseDate": 1733249837,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 8081,
+          "roleId": 7
+        }
+      }
+    ],
+    "cs2red_admins": [],
+    "cs2red_vips": [
+      {
+        "id": 182663,
+        "userId": 164738,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1749960722,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 182725,
+        "userId": 164738,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1749949384,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 200730,
+        "userId": 164738,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1752998839,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 210418,
+        "userId": 164738,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1754695795,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 210990,
+        "userId": 164738,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1754784975,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 235282,
+        "userId": 164738,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1757803786,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 275462,
+        "userId": 164738,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1763623940,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 283746,
+        "userId": 164738,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1764619987,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 289360,
+        "userId": 164738,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1765314533,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 294519,
+        "userId": 164738,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1765944778,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 295241,
+        "userId": 164738,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1766035235,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 296024,
+        "userId": 164738,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1766108008,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 324122,
+        "userId": 164738,
+        "serverId": 1,
+        "group": "BASIC",
+        "expires": 1769819658,
+        "priority": 11,
+        "timestamp": 1768696458,
+        "disable": null
+      },
+      {
+        "id": 326128,
+        "userId": 164738,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1769485679,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 398977,
+        "userId": 164738,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1778023843,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 426287,
+        "userId": 164738,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1782911620,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 427534,
+        "userId": 164738,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1783190739,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 428097,
+        "userId": 164738,
+        "serverId": 0,
+        "group": "ULTRA",
+        "expires": 1783302625,
+        "priority": 44,
+        "timestamp": null,
+        "disable": null
+      }
+    ],
+    "banned": false,
+    "active_bans": [],
+    "muted": false,
+    "active_mutes": [],
+    "steam_avatar": "https://avatars.steamstatic.com/af0863aa95bb64ff6bff9b8558fe2cc056f5c940_full.jpg",
+    "steam_status": "offline",
+    "steam_nick": "Idk",
+    "steam_bans": {
+      "vac_banned": false,
+      "number_of_vac_bans": 0,
+      "days_since_last_ban": 0,
+      "community_banned": false,
+      "number_of_game_bans": 0,
+      "economy_ban": "none"
+    }
+  },
+  "76561199884856220": {
+    "discord_id": "1303048908229840966",
+    "updated_at": "2026-10-03T22:25:49.003445+00:00",
+    "discord_name": "+𝗿èр♡",
+    "discord_joined": "2026-07-02T19:24:50.408000+00:00",
+    "steamid64": "76561199884856220",
+    "cs2red_nick": "+𝗿èр♡ cs2red.ru",
+    "cs2red_role_id": 7,
+    "cs2red_role_name": "Спонсор",
+    "cs2red_admins": [
+      {
+        "id": 6495,
+        "userId": 285566,
+        "serverId": 6,
+        "roleId": 7,
+        "coreRoleId": 7,
+        "expires": 0,
+        "priority": 15,
+        "byUserId": 0,
+        "timestamp": 1781610540,
+        "freezeBy": null,
+        "freezeReason": null,
+        "byUser": null,
+        "freezeUser": null
+      },
+      {
+        "id": 6795,
+        "userId": 285566,
+        "serverId": 2,
+        "roleId": 6,
+        "coreRoleId": null,
+        "expires": 0,
+        "priority": 10,
+        "byUserId": 0,
+        "timestamp": 1784305056,
+        "freezeBy": null,
+        "freezeReason": null,
+        "byUser": null,
+        "freezeUser": null
+      },
+      {
+        "id": 6798,
+        "userId": 285566,
+        "serverId": 1,
+        "roleId": 5,
+        "coreRoleId": null,
+        "expires": 0,
+        "priority": 5,
+        "byUserId": 0,
+        "timestamp": 1784354283,
+        "freezeBy": null,
+        "freezeReason": null,
+        "byUser": null,
+        "freezeUser": null
+      },
+      {
+        "id": 7254,
+        "userId": 285566,
+        "serverId": 3,
+        "roleId": 6,
+        "coreRoleId": null,
+        "expires": 0,
+        "priority": 10,
+        "byUserId": 0,
+        "timestamp": 1788113940,
+        "freezeBy": null,
+        "freezeReason": null,
+        "byUser": null,
+        "freezeUser": null
+      }
+    ],
+    "cs2red_vips": [
+      {
+        "id": 213805,
+        "userId": 285566,
+        "serverId": 2,
+        "group": "ULTRA",
+        "expires": 0,
+        "priority": 44,
+        "timestamp": null,
+        "disable": ";tab_tag"
+      },
+      {
+        "id": 216378,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1755056499,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 217988,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1755311235,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 218211,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1755362212,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 219895,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1755590946,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 220837,
+        "userId": 285566,
+        "serverId": 1,
+        "group": "ULTRA",
+        "expires": 0,
+        "priority": 44,
+        "timestamp": 1755184480,
+        "disable": null
+      },
+      {
+        "id": 222708,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1756036749,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 227149,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1756621052,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 228499,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1756792725,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 232795,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1757381735,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 234031,
+        "userId": 285566,
+        "serverId": 6,
+        "group": "ULTRA",
+        "expires": 0,
+        "priority": 44,
+        "timestamp": 1757071691,
+        "disable": null
+      },
+      {
+        "id": 236576,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1758008061,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 240772,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1758590284,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 244442,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1759125067,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 248046,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "ULTRA",
+        "expires": 1760250700,
+        "priority": 44,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 248457,
+        "userId": 285566,
+        "serverId": 6,
+        "group": "EXTREME",
+        "expires": 1762281578,
+        "priority": 55,
+        "timestamp": 1759171178,
+        "disable": null
+      },
+      {
+        "id": 254417,
+        "userId": 285566,
+        "serverId": 6,
+        "group": "EXTREME",
+        "expires": 1768392866,
+        "priority": 55,
+        "timestamp": 1760098466,
+        "disable": null
+      },
+      {
+        "id": 261374,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1761769031,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 262907,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1761997769,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 265631,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1762350448,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 266057,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1762396838,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 269588,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1762836255,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 272863,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1763279830,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 273505,
+        "userId": 285566,
+        "serverId": 3,
+        "group": "BASIC",
+        "expires": 1763947029,
+        "priority": 11,
+        "timestamp": 1762823829,
+        "disable": null
+      },
+      {
+        "id": 277001,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1763812887,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 277695,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1763864229,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 286094,
+        "userId": 285566,
+        "serverId": 3,
+        "group": "BASIC",
+        "expires": 1765520369,
+        "priority": 11,
+        "timestamp": 1764397169,
+        "disable": null
+      },
+      {
+        "id": 287524,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1765090278,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 287913,
+        "userId": 285566,
+        "serverId": 3,
+        "group": "ULTRA",
+        "expires": 0,
+        "priority": 44,
+        "timestamp": 1764600448,
+        "disable": null
+      },
+      {
+        "id": 288787,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1765265680,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 291809,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1765594686,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 298871,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1766470946,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 304877,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1767207171,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 308469,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1767626065,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 309475,
+        "userId": 285566,
+        "serverId": 6,
+        "group": "EXTREME",
+        "expires": 0,
+        "priority": 55,
+        "timestamp": 1767156896,
+        "disable": null
+      },
+      {
+        "id": 313749,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "ULTRA",
+        "expires": 1768718623,
+        "priority": 44,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 318577,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1768613176,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 319454,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1768727683,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 328329,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1769763274,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 333358,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1770017618,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 336684,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1770381795,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 341002,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1770800399,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 344970,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1771207201,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 345988,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1771314965,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 347543,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1771523928,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 348358,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1771620339,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 349611,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1771762334,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 422216,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1782070205,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 422505,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "ULTRA",
+        "expires": 1782136655,
+        "priority": 44,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 424852,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1782608737,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 428492,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1783386118,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 430119,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1783770535,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 431362,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1784013737,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 437435,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1785212856,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 441666,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1786082548,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 443362,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "ULTRA",
+        "expires": 1786429378,
+        "priority": 44,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 445907,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "ULTRA",
+        "expires": 1786951308,
+        "priority": 44,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 446556,
+        "userId": 285566,
+        "serverId": 4,
+        "group": "ULTRA",
+        "expires": 0,
+        "priority": 44,
+        "timestamp": 1787045879,
+        "disable": null
+      },
+      {
+        "id": 451452,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1787859073,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 452174,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1787975580,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 453035,
+        "userId": 285566,
+        "serverId": 5,
+        "group": "ULTRA",
+        "expires": 0,
+        "priority": 44,
+        "timestamp": 1788113936,
+        "disable": null
+      },
+      {
+        "id": 453215,
+        "userId": 285566,
+        "serverId": 3,
+        "group": "EXTREME",
+        "expires": 0,
+        "priority": 55,
+        "timestamp": 1788157045,
+        "disable": null
+      },
+      {
+        "id": 454261,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1788346048,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 457232,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1788854015,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 466392,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1790043842,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 467816,
+        "userId": 285566,
+        "serverId": 0,
+        "group": "ULTRA",
+        "expires": 1790288601,
+        "priority": 44,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 469241,
+        "userId": 285566,
+        "serverId": 8,
+        "group": "ULTRA",
+        "expires": 0,
+        "priority": 44,
+        "timestamp": 1790385520,
+        "disable": null
+      }
+    ],
+    "cs2red_bans": [],
+    "cs2red_mutes": [],
+    "banned": false,
+    "active_bans": [],
+    "muted": false,
+    "active_mutes": [],
+    "activity_hours": 0.0,
+    "steam_avatar": "https://avatars.steamstatic.com/94331c5a76bb1bbb199ff6defbd7903035fa8b74_full.jpg",
+    "steam_status": "online",
+    "steam_nick": "+𝗿èр♡ cs2red.ru",
+    "steam_bans": {
+      "vac_banned": false,
+      "number_of_vac_bans": 0,
+      "days_since_last_ban": 0,
+      "community_banned": false,
+      "number_of_game_bans": 0,
+      "economy_ban": "none"
+    },
+    "activity": {
+      "AUTO": 0.19999999999999998
+    }
+  },
+  "76561199003956241": {
+    "discord_id": "1416125087324831815",
+    "updated_at": "2026-10-02T13:26:20.387967",
+    "discord_name": "Egorik",
+    "discord_joined": "2025-10-20T14:58:25.971000+00:00",
+    "steamid64": "76561199003956241",
+    "cs2red_nick": "Egorik",
+    "cs2red_role_id": 2,
+    "cs2red_role_name": "VIP",
+    "cs2red_bans": [
+      {
+        "id": 53530,
+        "adminId": 176979,
+        "actionId": 91654,
+        "reason": "П.П. 1.2",
+        "timestamp": 1740311245,
+        "endTimeStamp": 1740311690,
+        "unbanId": 2,
+        "user": {
+          "steamid64": "76561199775879363",
+          "nick": "winzip1667",
+          "avatarHash": "b5c12176223eede6c8d8f1ab5b34ec95caedc337",
+          "verify": false,
+          "plusEndingDate": 1740989140,
+          "plusPurchaseDate": 1739520340,
+          "ambassadorSinceAt": null,
+          "id": 176979,
+          "roleId": 1
+        }
+      },
+      {
+        "id": 59225,
+        "adminId": 175272,
+        "actionId": 91654,
+        "reason": "П.П. 1.4",
+        "timestamp": 1742657283,
+        "endTimeStamp": 1742743683,
+        "unbanId": null,
+        "user": {
+          "steamid64": "76561199822250729",
+          "nick": "4RM4SS NeonRush.ru",
+          "avatarHash": "bab0c6149f856c44582d608004f4540eedb6aa88",
+          "verify": false,
+          "plusEndingDate": 1765573744,
+          "plusPurchaseDate": 1741985346,
+          "ambassadorSinceAt": null,
+          "id": 175272,
+          "roleId": 7
+        }
+      },
+      {
+        "id": 63944,
+        "adminId": 71,
+        "actionId": 91654,
+        "reason": "П.П. 1.5",
+        "timestamp": 1744708387,
+        "endTimeStamp": 1744751584,
+        "unbanId": null,
+        "user": {
+          "steamid64": "76561199479930545",
+          "nick": "'psychocutie 𓆩𓆪",
+          "avatarHash": "9a102ad517566c225a7f606065ef2714640734cf",
+          "verify": true,
+          "plusEndingDate": 1804558637,
+          "plusPurchaseDate": 1733248691,
+          "ambassadorSinceAt": null,
+          "id": 71,
+          "roleId": 1
+        }
+      },
+      {
+        "id": 64355,
+        "adminId": 120993,
+        "actionId": 91654,
+        "reason": "П.П. 1.5",
+        "timestamp": 1744927397,
+        "endTimeStamp": 1744970597,
+        "unbanId": null,
+        "user": {
+          "steamid64": "76561198060499525",
+          "nick": "[CL]VodkaRUS",
+          "avatarHash": "8de8bf73194a26edbf9b41d4109e4d867618ed43",
+          "verify": false,
+          "plusEndingDate": null,
+          "plusPurchaseDate": null,
+          "ambassadorSinceAt": null,
+          "id": 120993,
+          "roleId": 1
+        }
+      },
+      {
+        "id": 66726,
+        "adminId": 160627,
+        "actionId": 91654,
+        "reason": "П.П. 1.3",
+        "timestamp": 1746213373,
+        "endTimeStamp": 1746256573,
+        "unbanId": null,
+        "user": {
+          "steamid64": "76561199809829776",
+          "nick": "zaharstroitel",
+          "avatarHash": "dcaf6c54371c6263f35213815f85abc641150c9f",
+          "verify": false,
+          "plusEndingDate": 1756812692,
+          "plusPurchaseDate": 1736604909,
+          "ambassadorSinceAt": null,
+          "id": 160627,
+          "roleId": 1
+        }
+      },
+      {
+        "id": 72347,
+        "adminId": 0,
+        "actionId": 91654,
+        "reason": "[VOTEBAN]",
+        "timestamp": 1749477420,
+        "endTimeStamp": 1749481020,
+        "unbanId": null,
+        "user": null
+      },
+      {
+        "id": 150494,
+        "adminId": 380986,
+        "actionId": 91654,
+        "reason": "Нар.Пр.Jail",
+        "timestamp": 1780779862,
+        "endTimeStamp": 1780780015,
+        "unbanId": 299263,
+        "user": {
+          "steamid64": "76561198767760077",
+          "nick": "il b;deer'",
+          "avatarHash": "c3bc3e4da4d403d8a72c8592f452ad83466518a5",
+          "verify": false,
+          "plusEndingDate": 1793359347,
+          "plusPurchaseDate": 1774646514,
+          "ambassadorSinceAt": null,
+          "id": 380986,
+          "roleId": 13
+        }
+      }
+    ],
+    "cs2red_mutes": [
+      {
+        "id": 20852,
+        "adminId": 79867,
+        "actionId": 91654,
+        "typeId": 3,
+        "reason": "П.П. 2.2",
+        "timestamp": 1742060427,
+        "endTimeStamp": 1742062227,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199746824948",
+          "nick": "11 lose",
+          "avatarHash": "46e9d0f44f1f880e043231bea78b276555daf269",
+          "plusEndingDate": 1750165656,
+          "plusPurchaseDate": 1741525656,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 79867,
+          "roleId": 9
+        }
+      },
+      {
+        "id": 22539,
+        "adminId": 71,
+        "actionId": 91654,
+        "typeId": 1,
+        "reason": "П.П. 2.2",
+        "timestamp": 1743253617,
+        "endTimeStamp": 1743260817,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199479930545",
+          "nick": "'psychocutie 𓆩𓆪",
+          "avatarHash": "9a102ad517566c225a7f606065ef2714640734cf",
+          "plusEndingDate": 1804558637,
+          "plusPurchaseDate": 1733248691,
+          "ambassadorSinceAt": null,
+          "verify": true,
+          "id": 71,
+          "roleId": 1
+        }
+      },
+      {
+        "id": 22854,
+        "adminId": 204647,
+        "actionId": 91654,
+        "typeId": 3,
+        "reason": "2.2",
+        "timestamp": 1743497918,
+        "endTimeStamp": 1743501511,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199834779822",
+          "nick": "HATE ¹²",
+          "avatarHash": "9328e45eb86d1d8be053f3b1f57e4c9c739c921e",
+          "plusEndingDate": 1770491234,
+          "plusPurchaseDate": 1741812715,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 204647,
+          "roleId": 8
+        }
+      },
+      {
+        "id": 24720,
+        "adminId": 85914,
+        "actionId": 91654,
+        "typeId": 3,
+        "reason": "П.П. 2.2",
+        "timestamp": 1745259166,
+        "endTimeStamp": 1745259466,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199747063840",
+          "nick": "калик",
+          "avatarHash": "6df72b22f39e6ea362ce546bc62f7a1faf8a64d9",
+          "plusEndingDate": 1760406887,
+          "plusPurchaseDate": 1739368644,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 85914,
+          "roleId": 1
+        }
+      },
+      {
+        "id": 24810,
+        "adminId": 85914,
+        "actionId": 91654,
+        "typeId": 3,
+        "reason": "П.П. 2.2",
+        "timestamp": 1745350992,
+        "endTimeStamp": 1745351292,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199747063840",
+          "nick": "калик",
+          "avatarHash": "6df72b22f39e6ea362ce546bc62f7a1faf8a64d9",
+          "plusEndingDate": 1760406887,
+          "plusPurchaseDate": 1739368644,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 85914,
+          "roleId": 1
+        }
+      },
+      {
+        "id": 25672,
+        "adminId": 168974,
+        "actionId": 91654,
+        "typeId": 3,
+        "reason": "П.П. 2.2",
+        "timestamp": 1746109922,
+        "endTimeStamp": 1746110222,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199676206079",
+          "nick": "утюг",
+          "avatarHash": "0c1c3dd00da80bb6e71a5d4a6a69ee09d5ba778b",
+          "plusEndingDate": 1748704490,
+          "plusPurchaseDate": 1739382357,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 168974,
+          "roleId": 8
+        }
+      },
+      {
+        "id": 25782,
+        "adminId": 66626,
+        "actionId": 91654,
+        "typeId": 2,
+        "reason": "П.П. 2.5",
+        "timestamp": 1746200895,
+        "endTimeStamp": 1746201195,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199231819802",
+          "nick": "RR",
+          "avatarHash": "6aa96a3dcaf2b4d635e5f31714601597cd516d75",
+          "plusEndingDate": null,
+          "plusPurchaseDate": null,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 66626,
+          "roleId": 9
+        }
+      },
+      {
+        "id": 26407,
+        "adminId": 204290,
+        "actionId": 91654,
+        "typeId": 3,
+        "reason": "П.П. 2.2",
+        "timestamp": 1746806471,
+        "endTimeStamp": 1746806771,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199680893464",
+          "nick": "Типнул = гей",
+          "avatarHash": "c59378b31219352b94e9a6353bf4ce497a1b7407",
+          "plusEndingDate": 1768407936,
+          "plusPurchaseDate": 1742554292,
+          "ambassadorSinceAt": "2026-07-19T12:30:57.000Z",
+          "verify": false,
+          "id": 204290,
+          "roleId": 8
+        }
+      },
+      {
+        "id": 26408,
+        "adminId": 204290,
+        "actionId": 91654,
+        "typeId": 3,
+        "reason": "П.П. 2.2",
+        "timestamp": 1746806642,
+        "endTimeStamp": 1746807542,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199680893464",
+          "nick": "Типнул = гей",
+          "avatarHash": "c59378b31219352b94e9a6353bf4ce497a1b7407",
+          "plusEndingDate": 1768407936,
+          "plusPurchaseDate": 1742554292,
+          "ambassadorSinceAt": "2026-07-19T12:30:57.000Z",
+          "verify": false,
+          "id": 204290,
+          "roleId": 8
+        }
+      },
+      {
+        "id": 26416,
+        "adminId": 204290,
+        "actionId": 91654,
+        "typeId": 3,
+        "reason": "П.П. 2.2",
+        "timestamp": 1746810620,
+        "endTimeStamp": 1746810920,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199680893464",
+          "nick": "Типнул = гей",
+          "avatarHash": "c59378b31219352b94e9a6353bf4ce497a1b7407",
+          "plusEndingDate": 1768407936,
+          "plusPurchaseDate": 1742554292,
+          "ambassadorSinceAt": "2026-07-19T12:30:57.000Z",
+          "verify": false,
+          "id": 204290,
+          "roleId": 8
+        }
+      },
+      {
+        "id": 26662,
+        "adminId": 140414,
+        "actionId": 91654,
+        "typeId": 3,
+        "reason": "П.П. 2.2",
+        "timestamp": 1747035782,
+        "endTimeStamp": 1747036082,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199805512331",
+          "nick": "KUSJLOTA",
+          "avatarHash": "997903be9d9c95d586bf1aa28bbabfc9eed040f4",
+          "plusEndingDate": 1768392419,
+          "plusPurchaseDate": 1744612779,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 140414,
+          "roleId": 7
+        }
+      },
+      {
+        "id": 26933,
+        "adminId": 138527,
+        "actionId": 91654,
+        "typeId": 3,
+        "reason": "П.П. 2.2",
+        "timestamp": 1747374358,
+        "endTimeStamp": 1747377958,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199805443187",
+          "nick": "` z1nep ⚛",
+          "avatarHash": "250b1e0a6183996b69856db7b15fff04ad21d7dd",
+          "plusEndingDate": 1786575507,
+          "plusPurchaseDate": 1739424906,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 138527,
+          "roleId": 9
+        }
+      },
+      {
+        "id": 27091,
+        "adminId": 160627,
+        "actionId": 91654,
+        "typeId": 2,
+        "reason": "П.П. 2.2",
+        "timestamp": 1747501818,
+        "endTimeStamp": 1747503618,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199809829776",
+          "nick": "zaharstroitel",
+          "avatarHash": "dcaf6c54371c6263f35213815f85abc641150c9f",
+          "plusEndingDate": 1756812692,
+          "plusPurchaseDate": 1736604909,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 160627,
+          "roleId": 1
+        }
+      },
+      {
+        "id": 27249,
+        "adminId": 163338,
+        "actionId": 91654,
+        "typeId": 3,
+        "reason": "П.П. 2.2",
+        "timestamp": 1747678622,
+        "endTimeStamp": 1747682222,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199816880221",
+          "nick": "баба капа",
+          "avatarHash": "55ceed6e67e3ad66d7fe411409f2bbbc4401f124",
+          "plusEndingDate": 1749813293,
+          "plusPurchaseDate": 1746357293,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 163338,
+          "roleId": 8
+        }
+      },
+      {
+        "id": 27268,
+        "adminId": 176069,
+        "actionId": 91654,
+        "typeId": 3,
+        "reason": "2.2",
+        "timestamp": 1747721550,
+        "endTimeStamp": 1747764750,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561198992079981",
+          "nick": "bezdar'",
+          "avatarHash": "d1d7979c26b8df64c08762b4f7c9384aaef37967",
+          "plusEndingDate": 1746547162,
+          "plusPurchaseDate": 1745423962,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 176069,
+          "roleId": 8
+        }
+      },
+      {
+        "id": 27349,
+        "adminId": 156612,
+        "actionId": 91654,
+        "typeId": 3,
+        "reason": "П.П. 2.2",
+        "timestamp": 1747770019,
+        "endTimeStamp": 1747770319,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199813824196",
+          "nick": "𓆩❤𓆪",
+          "avatarHash": "8bf5b67ceec88820ce5d9d14a022026f4757189c",
+          "plusEndingDate": 1773842936,
+          "plusPurchaseDate": 1735853457,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 156612,
+          "roleId": 1
+        }
+      },
+      {
+        "id": 27369,
+        "adminId": 70097,
+        "actionId": 91654,
+        "typeId": 3,
+        "reason": "П.П. 2.2",
+        "timestamp": 1747816605,
+        "endTimeStamp": 1747817505,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199233194453",
+          "nick": "ON/OFF",
+          "avatarHash": "547a1d04930f42fc8d44f2e013dcc9a6d6121fee",
+          "plusEndingDate": 1755599811,
+          "plusPurchaseDate": 1748601411,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 70097,
+          "roleId": 1
+        }
+      },
+      {
+        "id": 27979,
+        "adminId": 70097,
+        "actionId": 91654,
+        "typeId": 3,
+        "reason": "П.П. 2.2",
+        "timestamp": 1748367788,
+        "endTimeStamp": 1748368688,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199233194453",
+          "nick": "ON/OFF",
+          "avatarHash": "547a1d04930f42fc8d44f2e013dcc9a6d6121fee",
+          "plusEndingDate": 1755599811,
+          "plusPurchaseDate": 1748601411,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 70097,
+          "roleId": 1
+        }
+      },
+      {
+        "id": 28096,
+        "adminId": 70097,
+        "actionId": 91654,
+        "typeId": 3,
+        "reason": "П.П. 2.2",
+        "timestamp": 1748458781,
+        "endTimeStamp": 1748460581,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199233194453",
+          "nick": "ON/OFF",
+          "avatarHash": "547a1d04930f42fc8d44f2e013dcc9a6d6121fee",
+          "plusEndingDate": 1755599811,
+          "plusPurchaseDate": 1748601411,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 70097,
+          "roleId": 1
+        }
+      },
+      {
+        "id": 28224,
+        "adminId": 206002,
+        "actionId": 91654,
+        "typeId": 3,
+        "reason": "П.П. 2.2",
+        "timestamp": 1748590343,
+        "endTimeStamp": 1748593943,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561198217085217",
+          "nick": "vex†or9kareno",
+          "avatarHash": "b4f0b227bfa03e1a2ec8ab438d77c1991e05d722",
+          "plusEndingDate": 1755165283,
+          "plusPurchaseDate": 1742226772,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 206002,
+          "roleId": 8
+        }
+      },
+      {
+        "id": 28264,
+        "adminId": 8081,
+        "actionId": 91654,
+        "typeId": 2,
+        "reason": "2.2",
+        "timestamp": 1748608394,
+        "endTimeStamp": 1748608397,
+        "unmuteId": 8081,
+        "user": {
+          "steamid64": "76561199162568168",
+          "nick": "not me",
+          "avatarHash": "23ec2ec9948c746c4423933a96fd9c6dc8daa394",
+          "plusEndingDate": 1797593437,
+          "plusPurchaseDate": 1733249837,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 8081,
+          "roleId": 7
+        }
+      },
+      {
+        "id": 28350,
+        "adminId": 51458,
+        "actionId": 91654,
+        "typeId": 3,
+        "reason": "П.П. 2.2",
+        "timestamp": 1748677823,
+        "endTimeStamp": 1748685023,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199467112126",
+          "nick": "syeta$2",
+          "avatarHash": "3de599d2041724fbf838b0de4499719047e3623e",
+          "plusEndingDate": 1754836106,
+          "plusPurchaseDate": 1748096500,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 51458,
+          "roleId": 1
+        }
+      },
+      {
+        "id": 28705,
+        "adminId": 199301,
+        "actionId": 91654,
+        "typeId": 2,
+        "reason": "П.П. 2.4",
+        "timestamp": 1748979307,
+        "endTimeStamp": 1748982907,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199826793722",
+          "nick": "virox",
+          "avatarHash": "3fad3b142dcecff38042b5b29657ae739f4c4052",
+          "plusEndingDate": 1754854921,
+          "plusPurchaseDate": 1746620489,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 199301,
+          "roleId": 1
+        }
+      },
+      {
+        "id": 29197,
+        "adminId": 189753,
+        "actionId": 91654,
+        "typeId": 3,
+        "reason": "П.П. 2.2",
+        "timestamp": 1749465395,
+        "endTimeStamp": 1749465695,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199816806270",
+          "nick": "kingur",
+          "avatarHash": "9c6833a4a009c58822e2781c48e09f20823e549e",
+          "plusEndingDate": 1774645910,
+          "plusPurchaseDate": 1743113420,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 189753,
+          "roleId": 1
+        }
+      },
+      {
+        "id": 29861,
+        "adminId": 40418,
+        "actionId": 91654,
+        "typeId": 3,
+        "reason": "П.П. 2.2",
+        "timestamp": 1749928900,
+        "endTimeStamp": 1749929200,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199568351562",
+          "nick": "впустименяксебе",
+          "avatarHash": "e1511d2dae70d73ecaba17b9e9971e87cb9b096c",
+          "plusEndingDate": 1781401256,
+          "plusPurchaseDate": 1735412567,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 40418,
+          "roleId": 8
+        }
+      },
+      {
+        "id": 30037,
+        "adminId": 189105,
+        "actionId": 91654,
+        "typeId": 1,
+        "reason": "П.П 2.2",
+        "timestamp": 1750114475,
+        "endTimeStamp": 1750118077,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199827806264",
+          "nick": "リリィ",
+          "avatarHash": "2b2ed7b51d5b2be7b06235e30bebbc06d13f0b3a",
+          "plusEndingDate": 1751128841,
+          "plusPurchaseDate": 1747226946,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 189105,
+          "roleId": 8
+        }
+      },
+      {
+        "id": 30167,
+        "adminId": 10630,
+        "actionId": 91654,
+        "typeId": 3,
+        "reason": "П.П. 2.2",
+        "timestamp": 1750264689,
+        "endTimeStamp": 1750268289,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199109170721",
+          "nick": "пойман на ошибке",
+          "avatarHash": "3a8f01ba59d681ded3dd88f14660aad8ee36b812",
+          "plusEndingDate": 1785333450,
+          "plusPurchaseDate": 1748957409,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 10630,
+          "roleId": 1
+        }
+      },
+      {
+        "id": 30168,
+        "adminId": 468,
+        "actionId": 91654,
+        "typeId": 2,
+        "reason": "П.П. 2.2",
+        "timestamp": 1750264786,
+        "endTimeStamp": 1750266586,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199486893387",
+          "nick": "toxic",
+          "avatarHash": "e5bd2bf64446d042360f3425556e23bd5f3df7d8",
+          "plusEndingDate": 1762366697,
+          "plusPurchaseDate": 1744398190,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 468,
+          "roleId": 1
+        }
+      },
+      {
+        "id": 30246,
+        "adminId": 206147,
+        "actionId": 91654,
+        "typeId": 1,
+        "reason": "П.П. 2.2",
+        "timestamp": 1750328524,
+        "endTimeStamp": 1750332124,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199543378916",
+          "nick": "Abduleha cs2red.ru",
+          "avatarHash": "de871719f33cac426a98dd04f42160dd1c1595c9",
+          "plusEndingDate": 1751374383,
+          "plusPurchaseDate": 1742220501,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 206147,
+          "roleId": 1
+        }
+      },
+      {
+        "id": 30396,
+        "adminId": 167,
+        "actionId": 91654,
+        "typeId": 2,
+        "reason": "П.П. 2.2",
+        "timestamp": 1750498488,
+        "endTimeStamp": 1750505688,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199443091990",
+          "nick": "leloven",
+          "avatarHash": "cf74b50fb6bc283e7b5cbccece8ea4953684f562",
+          "plusEndingDate": 1793188007,
+          "plusPurchaseDate": 1733288912,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 167,
+          "roleId": 8
+        }
+      },
+      {
+        "id": 30701,
+        "adminId": 168660,
+        "actionId": 91654,
+        "typeId": 3,
+        "reason": "П.П. 2.2",
+        "timestamp": 1750775738,
+        "endTimeStamp": 1750779338,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199819824169",
+          "nick": "тише будь",
+          "avatarHash": "7bbc41292cf371597fec3f6f830759bfcac64891",
+          "plusEndingDate": 1757510310,
+          "plusPurchaseDate": 1739078867,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 168660,
+          "roleId": 8
+        }
+      },
+      {
+        "id": 31492,
+        "adminId": 8081,
+        "actionId": 91654,
+        "typeId": 3,
+        "reason": "П.П. 2.2",
+        "timestamp": 1751558442,
+        "endTimeStamp": 1751558662,
+        "unmuteId": 8081,
+        "user": {
+          "steamid64": "76561199162568168",
+          "nick": "not me",
+          "avatarHash": "23ec2ec9948c746c4423933a96fd9c6dc8daa394",
+          "plusEndingDate": 1797593437,
+          "plusPurchaseDate": 1733249837,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 8081,
+          "roleId": 7
+        }
+      },
+      {
+        "id": 36446,
+        "adminId": 204290,
+        "actionId": 91654,
+        "typeId": 3,
+        "reason": "П.П. 2.2",
+        "timestamp": 1756234196,
+        "endTimeStamp": 1756237796,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199680893464",
+          "nick": "Типнул = гей",
+          "avatarHash": "c59378b31219352b94e9a6353bf4ce497a1b7407",
+          "plusEndingDate": 1768407936,
+          "plusPurchaseDate": 1742554292,
+          "ambassadorSinceAt": "2026-07-19T12:30:57.000Z",
+          "verify": false,
+          "id": 204290,
+          "roleId": 8
+        }
+      }
+    ],
+    "cs2red_admins": [
+      {
+        "id": 3603,
+        "userId": 91654,
+        "serverId": 3,
+        "roleId": 6,
+        "coreRoleId": 9,
+        "expires": 0,
+        "priority": 10,
+        "byUserId": 0,
+        "timestamp": 1756751839,
+        "freezeBy": null,
+        "freezeReason": null,
+        "byUser": null,
+        "freezeUser": null
+      },
+      {
+        "id": 3630,
+        "userId": 91654,
+        "serverId": 6,
+        "roleId": 6,
+        "coreRoleId": 9,
+        "expires": 0,
+        "priority": 10,
+        "byUserId": 0,
+        "timestamp": 1757158748,
+        "freezeBy": null,
+        "freezeReason": null,
+        "byUser": null,
+        "freezeUser": null
+      },
+      {
+        "id": 7328,
+        "userId": 91654,
+        "serverId": 0,
+        "roleId": 1,
+        "coreRoleId": null,
+        "expires": 0,
+        "priority": 10,
+        "byUserId": 100965,
+        "timestamp": 1788705415,
+        "freezeBy": null,
+        "freezeReason": null,
+        "byUser": {
+          "steamid64": "76561199105587242",
+          "nick": "󠁿⁧⁧𓆩Miyako_candy𓆪",
+          "avatarHash": "8275309b612cd78771e9a8778d8e14338d7f9350",
+          "plusEndingDate": 1790480676,
+          "plusPurchaseDate": 1740424563,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 100965,
+          "roleId": 4
+        },
+        "freezeUser": null
+      }
+    ],
+    "cs2red_vips": [
+      {
+        "id": 102051,
+        "userId": 91654,
+        "serverId": 1,
+        "group": "BASIC",
+        "expires": 1739517423,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 102339,
+        "userId": 91654,
+        "serverId": 2,
+        "group": "BASIC",
+        "expires": 1739545495,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 107276,
+        "userId": 91654,
+        "serverId": 1,
+        "group": "BASIC",
+        "expires": 1740230671,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 112135,
+        "userId": 91654,
+        "serverId": 1,
+        "group": "BASIC",
+        "expires": 1740856062,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 115061,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1740761064,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 122393,
+        "userId": 91654,
+        "serverId": 6,
+        "group": "ULTRA",
+        "expires": 1744136095,
+        "priority": 44,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 122537,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1741596823,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 130650,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1742605691,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 135716,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1743273610,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 136234,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1743302289,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 137083,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1743434565,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 145930,
+        "userId": 91654,
+        "serverId": 3,
+        "group": "BASIC",
+        "expires": 1745178324,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 146111,
+        "userId": 91654,
+        "serverId": 6,
+        "group": "ULTRA",
+        "expires": 1747208720,
+        "priority": 44,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 146511,
+        "userId": 91654,
+        "serverId": 3,
+        "group": "MEDIUM",
+        "expires": 1747248984,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 146728,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1744735201,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 148479,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1744938434,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 156721,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1746060335,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 158846,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1746321895,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 160068,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1746495236,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 160652,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1746601914,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 161334,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1746716519,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 163520,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1747006382,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 164899,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1747184632,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 165115,
+        "userId": 91654,
+        "serverId": 1,
+        "group": "ULTRA",
+        "expires": 1749805643,
+        "priority": 44,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 165479,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1747271522,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 167524,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1747597237,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 168520,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1747740888,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 170722,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1748053677,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 171298,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1748164406,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 172031,
+        "userId": 91654,
+        "serverId": 6,
+        "group": "ULTRA",
+        "expires": 1750844016,
+        "priority": 44,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 173533,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1748523698,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 174403,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1748677594,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 176162,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1748962076,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 176518,
+        "userId": 91654,
+        "serverId": 3,
+        "group": "BASIC",
+        "expires": 1750174843,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 176726,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1749027921,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 186411,
+        "userId": 91654,
+        "serverId": 3,
+        "group": "BASIC",
+        "expires": 1751670819,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 187460,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1750647418,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 188235,
+        "userId": 91654,
+        "serverId": 3,
+        "group": "ULTRA",
+        "expires": 0,
+        "priority": 44,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 188914,
+        "userId": 91654,
+        "serverId": 6,
+        "group": "ULTRA",
+        "expires": 1758644115,
+        "priority": 44,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 189019,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1750921926,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 189574,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1751035603,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 194379,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1751872602,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 195074,
+        "userId": 91654,
+        "serverId": 6,
+        "group": "EXTREME",
+        "expires": 1754557661,
+        "priority": 55,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 197014,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1752282302,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 199297,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1752711526,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 199605,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1752760887,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 201188,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1753063587,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 205525,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1753845297,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 219224,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1755506682,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 222960,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1756072341,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 229233,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1756920798,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 232214,
+        "userId": 91654,
+        "serverId": 6,
+        "group": "ULTRA",
+        "expires": 0,
+        "priority": 44,
+        "timestamp": 1756751825,
+        "disable": null
+      },
+      {
+        "id": 242159,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1758836673,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 243074,
+        "userId": 91654,
+        "serverId": 1,
+        "group": "MEDIUM",
+        "expires": 0,
+        "priority": 33,
+        "timestamp": 1758389095,
+        "disable": null
+      },
+      {
+        "id": 246681,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1759507058,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 249233,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1759849658,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 252737,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1760363562,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 257126,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1761149547,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 261040,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1761758604,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 263588,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1762088788,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 267668,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1762613356,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 268785,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1762761121,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 268835,
+        "userId": 91654,
+        "serverId": 2,
+        "group": "LITE",
+        "expires": 1765331426,
+        "priority": 22,
+        "timestamp": 1762221026,
+        "disable": null
+      },
+      {
+        "id": 275802,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1763655831,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 281694,
+        "userId": 91654,
+        "serverId": 3,
+        "group": "EXTREME",
+        "expires": 1766949883,
+        "priority": 55,
+        "timestamp": 1763839483,
+        "disable": null
+      },
+      {
+        "id": 385838,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1776516644,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 386770,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1776609806,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 387610,
+        "userId": 91654,
+        "serverId": 2,
+        "group": "LITE",
+        "expires": 1779271381,
+        "priority": 22,
+        "timestamp": 1776506581,
+        "disable": null
+      },
+      {
+        "id": 399898,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1778412168,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 406768,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1779246368,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 442028,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1786151933,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 442030,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1786151939,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 442450,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "ULTRA",
+        "expires": 1786240616,
+        "priority": 44,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 451169,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1787811539,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 457234,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1788854806,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 462720,
+        "userId": 91654,
+        "serverId": 8,
+        "group": "BASIC",
+        "expires": 1790271262,
+        "priority": 11,
+        "timestamp": 1789666462,
+        "disable": null
+      },
+      {
+        "id": 463612,
+        "userId": 91654,
+        "serverId": 8,
+        "group": "ULTRA",
+        "expires": 1789830441,
+        "priority": 44,
+        "timestamp": 1789744041,
+        "disable": null
+      },
+      {
+        "id": 465112,
+        "userId": 91654,
+        "serverId": 8,
+        "group": "ULTRA",
+        "expires": 1789982119,
+        "priority": 44,
+        "timestamp": 1789895719,
+        "disable": null
+      },
+      {
+        "id": 465891,
+        "userId": 91654,
+        "serverId": 8,
+        "group": "ULTRA",
+        "expires": 1790074395,
+        "priority": 44,
+        "timestamp": 1789987995,
+        "disable": null
+      },
+      {
+        "id": 466731,
+        "userId": 91654,
+        "serverId": 8,
+        "group": "ULTRA",
+        "expires": 1790170713,
+        "priority": 44,
+        "timestamp": 1790084313,
+        "disable": null
+      },
+      {
+        "id": 469132,
+        "userId": 91654,
+        "serverId": 8,
+        "group": "ULTRA",
+        "expires": 1792954843,
+        "priority": 44,
+        "timestamp": 1790362843,
+        "disable": null
+      },
+      {
+        "id": 469222,
+        "userId": 91654,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1790388779,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      }
+    ],
+    "banned": false,
+    "active_bans": [],
+    "muted": false,
+    "active_mutes": [],
+    "steam_avatar": "https://avatars.steamstatic.com/766a1958c2d708b8cdf1684d9ccc16651df69a81_full.jpg",
+    "steam_status": "online",
+    "steam_nick": "Egorik",
+    "steam_bans": {
+      "vac_banned": false,
+      "number_of_vac_bans": 0,
+      "days_since_last_ban": 0,
+      "community_banned": false,
+      "number_of_game_bans": 0,
+      "economy_ban": "none"
+    },
+    "notes": ".",
+    "activity": {
+      "AUTO": 0.18333333333333332
+    }
+  },
+  "76561199213449979": {
+    "discord_id": "868526877608902727",
+    "updated_at": "2026-10-03T11:25:36.307269+00:00",
+    "discord_name": "Чипигоmentality",
+    "discord_joined": "2026-09-09T20:05:16.873000+00:00",
+    "steamid64": "76561199213449979",
+    "cs2red_nick": "⊹₊кЫсЫк₊⊹",
+    "cs2red_role_id": 3,
+    "cs2red_role_name": "Модератор",
+    "active_bans": [],
+    "active_mutes": [],
+    "banned": false,
+    "muted": false,
+    "activity_hours": 0.0,
+    "steam_avatar": "https://avatars.steamstatic.com/f7e4f96768d603e694bf4a0205faa7379eb88492_full.jpg",
+    "steam_status": "offline",
+    "steam_nick": "⊹₊кЫсЫк₊⊹",
+    "steam_bans": {
+      "vac_banned": false,
+      "number_of_vac_bans": 0,
+      "days_since_last_ban": 0,
+      "community_banned": false,
+      "number_of_game_bans": 0,
+      "economy_ban": "none"
+    },
+    "notes": "2"
+  },
+  "76561198969836875": {
+    "discord_id": "1113899288192356402",
+    "updated_at": "2026-10-04T09:45:52.706752+00:00",
+    "discord_name": "rose",
+    "discord_joined": "2025-08-14T10:04:06.130000+00:00",
+    "steamid64": "76561198969836875",
+    "cs2red_nick": "Kadokawa",
+    "cs2red_role_id": 7,
+    "cs2red_role_name": "Игрок",
+    "cs2red_bans": [],
+    "cs2red_mutes": [
+      {
+        "id": 59280,
+        "adminId": 94,
+        "actionId": 244896,
+        "typeId": 1,
+        "reason": "П.П. 2.2",
+        "timestamp": 1772053181,
+        "endTimeStamp": 1772053481,
+        "unmuteId": null,
+        "user": {
+          "steamid64": "76561199104065595",
+          "nick": "Rikkomics",
+          "avatarHash": "a73955f5d746e6e266b5170c2eed3047928ff0b7",
+          "plusEndingDate": 1793462430,
+          "plusPurchaseDate": 1733254306,
+          "ambassadorSinceAt": "2026-05-15T19:32:41.000Z",
+          "verify": true,
+          "id": 94,
+          "roleId": 5
+        }
+      }
+    ],
+    "cs2red_admins": [
+      {
+        "id": 4143,
+        "userId": 244896,
+        "serverId": 6,
+        "roleId": 7,
+        "coreRoleId": 7,
+        "expires": 0,
+        "priority": 15,
+        "byUserId": 0,
+        "timestamp": 1763553457,
+        "freezeBy": null,
+        "freezeReason": null,
+        "byUser": null,
+        "freezeUser": null
+      }
+    ],
+    "cs2red_vips": [
+      {
+        "id": 176487,
+        "userId": 244896,
+        "serverId": 6,
+        "group": "MEDIUM",
+        "expires": 1751553052,
+        "priority": 33,
+        "timestamp": null,
+        "disable": "tab_tag"
+      },
+      {
+        "id": 177089,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1749658872,
+        "priority": 33,
+        "timestamp": null,
+        "disable": "tab_tag"
+      },
+      {
+        "id": 177890,
+        "userId": 244896,
+        "serverId": 6,
+        "group": "EXTREME",
+        "expires": 1751785968,
+        "priority": 55,
+        "timestamp": null,
+        "disable": "tab_tag"
+      },
+      {
+        "id": 180029,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1749541509,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 186457,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1750493979,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 186979,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1750581697,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 195530,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1752080399,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 196576,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1752233136,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 196987,
+        "userId": 244896,
+        "serverId": 6,
+        "group": "EXTREME",
+        "expires": 1754856511,
+        "priority": 55,
+        "timestamp": null,
+        "disable": "tab_tag;join_message"
+      },
+      {
+        "id": 198080,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1752481838,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 204176,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1753707772,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 204527,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1753666502,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 205116,
+        "userId": 244896,
+        "serverId": 1,
+        "group": "MEDIUM",
+        "expires": 1756363089,
+        "priority": 33,
+        "timestamp": null,
+        "disable": "tab_tag;join_message"
+      },
+      {
+        "id": 211062,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1754821502,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 211666,
+        "userId": 244896,
+        "serverId": 6,
+        "group": "MEDIUM",
+        "expires": 1757484161,
+        "priority": 33,
+        "timestamp": null,
+        "disable": "tab_tag;join_message"
+      },
+      {
+        "id": 214031,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1755454641,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 216402,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1755088924,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 217596,
+        "userId": 244896,
+        "serverId": 6,
+        "group": "ULTRA",
+        "expires": 1757819892,
+        "priority": 44,
+        "timestamp": null,
+        "disable": "tab_tag;join_message"
+      },
+      {
+        "id": 222864,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1756062178,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 223335,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1756099880,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 230007,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1756996034,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 242807,
+        "userId": 244896,
+        "serverId": 1,
+        "group": "BASIC",
+        "expires": 1760091546,
+        "priority": 11,
+        "timestamp": 1758363546,
+        "disable": "tab_tag;join_message"
+      },
+      {
+        "id": 242829,
+        "userId": 244896,
+        "serverId": 6,
+        "group": "BASIC",
+        "expires": 1759488869,
+        "priority": 11,
+        "timestamp": 1758365669,
+        "disable": null
+      },
+      {
+        "id": 248720,
+        "userId": 244896,
+        "serverId": 6,
+        "group": "EXTREME",
+        "expires": 1762343034,
+        "priority": 55,
+        "timestamp": 1759232634,
+        "disable": "tab_tag;join_message"
+      },
+      {
+        "id": 252842,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1760373952,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 254530,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1760640123,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 279214,
+        "userId": 244896,
+        "serverId": 6,
+        "group": "EXTREME",
+        "expires": 0,
+        "priority": 55,
+        "timestamp": 1763553755,
+        "disable": "tab_tag;chat_prefix"
+      },
+      {
+        "id": 280523,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1764284459,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 309437,
+        "userId": 244896,
+        "serverId": 3,
+        "group": "EXTREME",
+        "expires": 1770259783,
+        "priority": 55,
+        "timestamp": 1767149383,
+        "disable": "tab_tag;chat_prefix"
+      },
+      {
+        "id": 336790,
+        "userId": 244896,
+        "serverId": 1,
+        "group": "MEDIUM",
+        "expires": 1772952380,
+        "priority": 33,
+        "timestamp": 1770187580,
+        "disable": null
+      },
+      {
+        "id": 342049,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1770931821,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 345991,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1771337124,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 355490,
+        "userId": 244896,
+        "serverId": 8,
+        "group": "BASIC",
+        "expires": 1773695327,
+        "priority": 11,
+        "timestamp": 1772312927,
+        "disable": null
+      },
+      {
+        "id": 355530,
+        "userId": 244896,
+        "serverId": 3,
+        "group": "EXTREME",
+        "expires": 1775095808,
+        "priority": 55,
+        "timestamp": 1772331008,
+        "disable": null
+      },
+      {
+        "id": 358655,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1773085586,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 364985,
+        "userId": 244896,
+        "serverId": 1,
+        "group": "MEDIUM",
+        "expires": 1776510864,
+        "priority": 33,
+        "timestamp": 1773746064,
+        "disable": null
+      },
+      {
+        "id": 366530,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1774162383,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 373973,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1775142693,
+        "priority": 11,
+        "timestamp": 1774933893,
+        "disable": null
+      },
+      {
+        "id": 376396,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1775403906,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 376613,
+        "userId": 244896,
+        "serverId": 3,
+        "group": "ULTRA",
+        "expires": 1777999824,
+        "priority": 44,
+        "timestamp": 1775235024,
+        "disable": null
+      },
+      {
+        "id": 382165,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1776046821,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 390978,
+        "userId": 244896,
+        "serverId": 1,
+        "group": "BASIC",
+        "expires": 1778145715,
+        "priority": 11,
+        "timestamp": 1776936115,
+        "disable": null
+      },
+      {
+        "id": 392626,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1777165400,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 410763,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "ULTRA",
+        "expires": 1779969022,
+        "priority": 44,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 424126,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1782463443,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 424127,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1782463449,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 424695,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "ULTRA",
+        "expires": 1782577501,
+        "priority": 44,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 431752,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1784081603,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 465664,
+        "userId": 244896,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1789953549,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 467089,
+        "userId": 244896,
+        "serverId": 1,
+        "group": "BASIC",
+        "expires": 1790724866,
+        "priority": 11,
+        "timestamp": 1790120066,
+        "disable": null
+      }
+    ],
+    "banned": false,
+    "active_bans": [],
+    "muted": false,
+    "active_mutes": [],
+    "activity_hours": 0.0,
+    "steam_avatar": "https://avatars.steamstatic.com/dc1d51069ebd95fc7b21bec082234cdf79a880bd_full.jpg",
+    "steam_status": "offline",
+    "steam_nick": "Kadokawa",
+    "steam_bans": {
+      "vac_banned": false,
+      "number_of_vac_bans": 0,
+      "days_since_last_ban": 0,
+      "community_banned": false,
+      "number_of_game_bans": 0,
+      "economy_ban": "none"
+    },
+    "activity": {
+      "AUTO": 0.19166666666666665,
+      "PUBLIC": 3.0
+    },
+    "notes": "TOP 1"
+  },
+  "76561199017448448": {
+    "discord_id": "564093923426041857",
+    "updated_at": "2026-10-01T13:57:41.168700",
+    "discord_name": "Б е л о ч к а",
+    "discord_joined": "2026-09-22T02:49:34.232000+00:00",
+    "steamid64": "76561199017448448",
+    "cs2red_nick": "Белочка",
+    "cs2red_role_id": 4,
+    "cs2red_role_name": "Moderator",
+    "cs2red_bans": [],
+    "cs2red_mutes": [],
+    "banned": false,
+    "active_bans": [],
+    "muted": false,
+    "active_mutes": [],
+    "activity_hours": 0.0,
+    "steam_avatar": "https://avatars.steamstatic.com/63cf5f5c84a9a3220c43510154547e93560d2ee5_full.jpg",
+    "steam_status": "offline",
+    "steam_nick": "Белочка",
+    "steam_bans": {
+      "vac_banned": false,
+      "number_of_vac_bans": 0,
+      "days_since_last_ban": 0,
+      "community_banned": false,
+      "number_of_game_bans": 0,
+      "economy_ban": "none"
+    }
+  },
+  "76561199507948054": {
+    "cs2red_nick": "+MaYoR Kitti-"
+  },
+  "76561199888254202": {
+    "cs2red_nick": "ExXo f*ked",
+    "activity": {
+      "AUTO": 0.9708333333333345
+    },
+    "discord_name": "ExXo f*ked",
+    "updated_at": "2026-10-03T11:00:52.204823+00:00"
+  },
+  "76561199498439734": {
+    "cs2red_nick": "Exxpploss1ve1337",
+    "activity": {
+      "AUTO": 13.055277777777766
+    },
+    "discord_name": "Exxpploss1ve1337",
+    "updated_at": "2026-10-04T09:50:52.350630+00:00"
+  },
+  "76561199799675832": {
+    "cs2red_nick": "✦𝐰𝐫𝐲✦"
+  },
+  "76561199176838936": {
+    "cs2red_nick": "retnuh",
+    "activity": {
+      "AUTO": 1.9966666666666648
+    },
+    "discord_name": "retnuh",
+    "updated_at": "2026-10-03T12:31:54.775767+00:00"
+  },
+  "76561199750866629": {
+    "discord_id": "1381696311451193444",
+    "updated_at": "2026-10-03T11:29:51.075246+00:00",
+    "discord_name": "Xzise",
+    "discord_joined": "2025-06-13T08:24:24.534000+00:00",
+    "steamid64": "76561199750866629",
+    "cs2red_nick": "xzise cs2red.ru",
+    "cs2red_role_id": 13,
+    "cs2red_role_name": "Игрок",
+    "cs2red_bans": [],
+    "cs2red_mutes": [],
+    "banned": false,
+    "active_bans": [],
+    "muted": false,
+    "active_mutes": [],
+    "activity_hours": 0.0,
+    "steam_avatar": "https://avatars.steamstatic.com/328ab451d7da86896f8719e8c5f973f8539fb29c_full.jpg",
+    "steam_status": "online",
+    "steam_nick": "xzise cs2red.ru",
+    "steam_bans": {
+      "vac_banned": false,
+      "number_of_vac_bans": 0,
+      "days_since_last_ban": 0,
+      "community_banned": false,
+      "number_of_game_bans": 0,
+      "economy_ban": "none"
+    },
+    "notes": "1",
+    "activity": {
+      "AUTO": 1.2838888888888893
+    }
+  },
+  "76561199860546533": {
+    "discord_id": "1288847410201755670",
+    "updated_at": "2026-10-04T10:03:52.538366+00:00",
+    "discord_name": "krosh",
+    "discord_joined": "2026-06-11T11:31:33.486000+00:00",
+    "steamid64": "76561199860546533",
+    "cs2red_nick": "krosh",
+    "cs2red_role_id": 1,
+    "cs2red_role_name": "Мл. Модер",
+    "cs2red_admins": [],
+    "cs2red_vips": [
+      {
+        "id": 224496,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1756341399,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 250634,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1760048168,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 301396,
+        "userId": 248581,
+        "serverId": 1,
+        "group": "LITE",
+        "expires": 1769345483,
+        "priority": 22,
+        "timestamp": 1766235083,
+        "disable": null
+      },
+      {
+        "id": 301456,
+        "userId": 248581,
+        "serverId": 2,
+        "group": "LITE",
+        "expires": 1769351406,
+        "priority": 22,
+        "timestamp": 1766241006,
+        "disable": null
+      },
+      {
+        "id": 313490,
+        "userId": 248581,
+        "serverId": 1,
+        "group": "BASIC",
+        "expires": 1769282591,
+        "priority": 11,
+        "timestamp": 1767554591,
+        "disable": null
+      },
+      {
+        "id": 313492,
+        "userId": 248581,
+        "serverId": 5,
+        "group": "BASIC",
+        "expires": 1769282684,
+        "priority": 11,
+        "timestamp": 1767554684,
+        "disable": null
+      },
+      {
+        "id": 321476,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1768938657,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 326185,
+        "userId": 248581,
+        "serverId": 5,
+        "group": "BASIC",
+        "expires": 1770664474,
+        "priority": 11,
+        "timestamp": 1768936474,
+        "disable": null
+      },
+      {
+        "id": 340021,
+        "userId": 248581,
+        "serverId": 5,
+        "group": "BASIC",
+        "expires": 1771274034,
+        "priority": 11,
+        "timestamp": 1770496434,
+        "disable": null
+      },
+      {
+        "id": 351935,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1771987042,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 354114,
+        "userId": 248581,
+        "serverId": 3,
+        "group": "BASIC",
+        "expires": 1772857667,
+        "priority": 11,
+        "timestamp": 1772080067,
+        "disable": null
+      },
+      {
+        "id": 356613,
+        "userId": 248581,
+        "serverId": 2,
+        "group": "LITE",
+        "expires": 0,
+        "priority": 22,
+        "timestamp": 1772561755,
+        "disable": null
+      },
+      {
+        "id": 358568,
+        "userId": 248581,
+        "serverId": 5,
+        "group": "BASIC",
+        "expires": 1773670106,
+        "priority": 11,
+        "timestamp": 1772892506,
+        "disable": null
+      },
+      {
+        "id": 362637,
+        "userId": 248581,
+        "serverId": 3,
+        "group": "BASIC",
+        "expires": 1774218932,
+        "priority": 11,
+        "timestamp": 1773441332,
+        "disable": null
+      },
+      {
+        "id": 363000,
+        "userId": 248581,
+        "serverId": 5,
+        "group": "BASIC",
+        "expires": 1774899233,
+        "priority": 11,
+        "timestamp": 1773516833,
+        "disable": null
+      },
+      {
+        "id": 367814,
+        "userId": 248581,
+        "serverId": 6,
+        "group": "ULTRA",
+        "expires": 1776869387,
+        "priority": 44,
+        "timestamp": 1774104587,
+        "disable": null
+      },
+      {
+        "id": 369833,
+        "userId": 248581,
+        "serverId": 6,
+        "group": "ULTRA",
+        "expires": 0,
+        "priority": 44,
+        "timestamp": 1774358073,
+        "disable": null
+      },
+      {
+        "id": 374321,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1775182013,
+        "priority": 33,
+        "timestamp": 1774994813,
+        "disable": null
+      },
+      {
+        "id": 380423,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1775869300,
+        "priority": 11,
+        "timestamp": 1775660500,
+        "disable": null
+      },
+      {
+        "id": 381204,
+        "userId": 248581,
+        "serverId": 5,
+        "group": "BASIC",
+        "expires": 1776528617,
+        "priority": 11,
+        "timestamp": 1775751017,
+        "disable": null
+      },
+      {
+        "id": 385171,
+        "userId": 248581,
+        "serverId": 3,
+        "group": "BASIC",
+        "expires": 1776977945,
+        "priority": 11,
+        "timestamp": 1776200345,
+        "disable": null
+      },
+      {
+        "id": 386740,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1776607137,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 388078,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1776766799,
+        "priority": 11,
+        "timestamp": 1776557999,
+        "disable": null
+      },
+      {
+        "id": 388825,
+        "userId": 248581,
+        "serverId": 5,
+        "group": "BASIC",
+        "expires": 1777406128,
+        "priority": 11,
+        "timestamp": 1776628528,
+        "disable": null
+      },
+      {
+        "id": 391368,
+        "userId": 248581,
+        "serverId": 3,
+        "group": "MEDIUM",
+        "expires": 0,
+        "priority": 33,
+        "timestamp": 1776968931,
+        "disable": null
+      },
+      {
+        "id": 393473,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1777267316,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 393995,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1777359871,
+        "priority": 11,
+        "timestamp": 1777323871,
+        "disable": null
+      },
+      {
+        "id": 395094,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1777533829,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 395711,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1777619325,
+        "priority": 11,
+        "timestamp": 1777583325,
+        "disable": null
+      },
+      {
+        "id": 397057,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1777793415,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 398321,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1777950675,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 403285,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "ULTRA",
+        "expires": 1778602028,
+        "priority": 44,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 406669,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "ULTRA",
+        "expires": 1779225572,
+        "priority": 44,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 407789,
+        "userId": 248581,
+        "serverId": 5,
+        "group": "BASIC",
+        "expires": 1780054276,
+        "priority": 11,
+        "timestamp": 1779449476,
+        "disable": null
+      },
+      {
+        "id": 414343,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1780535187,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 415325,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1780707893,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 426077,
+        "userId": 248581,
+        "serverId": 3,
+        "group": "ULTRA",
+        "expires": 0,
+        "priority": 44,
+        "timestamp": 1782848659,
+        "disable": null
+      },
+      {
+        "id": 432068,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1784163694,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 433789,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1784754284,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 437366,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1785200477,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 440499,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1785816688,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 444245,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1786619910,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 445024,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "ULTRA",
+        "expires": 1786757733,
+        "priority": 44,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 448781,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1787416034,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 469210,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "ULTRA",
+        "expires": 1790387783,
+        "priority": 44,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 472259,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "ULTRA",
+        "expires": 1790846912,
+        "priority": 44,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 472713,
+        "userId": 248581,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1790816778,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      }
+    ],
+    "active_bans": [],
+    "active_mutes": [],
+    "banned": false,
+    "muted": false,
+    "activity_hours": 2.849999999999996,
+    "steam_avatar": "https://avatars.steamstatic.com/ee1129b6da79b55380986b89e9447b67daad548a_full.jpg",
+    "steam_status": "online",
+    "steam_nick": "krosh",
+    "steam_bans": {
+      "vac_banned": false,
+      "number_of_vac_bans": 0,
+      "days_since_last_ban": 0,
+      "community_banned": false,
+      "number_of_game_bans": 0,
+      "economy_ban": "none"
+    },
+    "activity": {
+      "AUTO": 5.640555555555548
+    }
+  },
+  "76561199634811588": {
+    "cs2red_nick": "Ichigo",
+    "activity": {
+      "AUTO": 0.7011111111111117
+    },
+    "discord_name": "Ichigo",
+    "updated_at": "2026-10-02T14:26:20.435967"
+  },
+  "76561199816806270": {
+    "cs2red_nick": "kingur"
+  },
+  "76561199757875028": {
+    "cs2red_nick": "Gojo"
+  },
+  "76561199744107114": {
+    "cs2red_nick": "'Lowpie 𓆩𓆪",
+    "activity": {
+      "AUTO": 1.4897222222222224
+    },
+    "discord_name": "'Lowpie 𓆩𓆪",
+    "updated_at": "2026-10-03T11:11:51.132970+00:00"
+  },
+  "76561199227999115": {
+    "cs2red_nick": "As1d"
+  },
+  "76561198767760077": {
+    "cs2red_nick": "il b;deer'",
+    "activity": {
+      "AUTO": 2.592777777777774
+    },
+    "discord_name": "il b;deer'",
+    "updated_at": "2026-10-02T20:43:43.992595+00:00"
+  },
+  "76561199819389759": {
+    "cs2red_nick": "TheZodiaC cs2red.ru"
+  },
+  "76561199839728429": {
+    "cs2red_nick": "Don Lorenzo"
+  },
+  "76561198743106374": {
+    "cs2red_nick": "boch_ka33",
+    "activity": {
+      "AUTO": 4.0441666666666585
+    },
+    "discord_name": "boch_ka33",
+    "updated_at": "2026-10-03T16:43:59.224481+00:00"
+  },
+  "76561199443091990": {
+    "cs2red_nick": "leloven"
+  },
+  "76561199856959161": {
+    "cs2red_nick": "ShadowHunter"
+  },
+  "76561199558306601": {
+    "cs2red_nick": "сократ"
+  },
+  "76561198262771921": {
+    "cs2red_nick": "kaifuem",
+    "activity": {
+      "AUTO": 0.7338888888888896
+    },
+    "discord_name": "kaifuem",
+    "updated_at": "2026-10-03T21:57:48.997468+00:00"
+  },
+  "76561198746162613": {
+    "cs2red_nick": "ksk666",
+    "activity": {
+      "AUTO": 4.059444444444443
+    },
+    "discord_name": "ksk666",
+    "updated_at": "2026-10-04T10:03:52.538366+00:00"
+  },
+  "76561199807063434": {
+    "cs2red_nick": "//;g1iilg0ld",
+    "activity": {
+      "AUTO": 0.4591666666666666
+    },
+    "discord_name": "//;g1iilg0ld",
+    "updated_at": "2026-10-01T14:20:57.739350"
+  },
+  "76561199658095712": {
+    "cs2red_nick": "Tyr1k"
+  },
+  "76561199851221222": {
+    "cs2red_nick": "ko cs2red.ru"
+  },
+  "76561199875731716": {
+    "cs2red_nick": "WOOH cs2red.ru #OldRust"
+  },
+  "76561199129021546": {
+    "cs2red_nick": "ради неё",
+    "activity": {
+      "AUTO": 0.7841666666666675
+    },
+    "discord_name": "ради неё",
+    "updated_at": "2026-10-04T09:56:52.404367+00:00"
+  },
+  "76561198734411053": {
+    "cs2red_nick": "nelo666",
+    "activity": {
+      "AUTO": 0.05
+    },
+    "discord_name": "nelo666",
+    "updated_at": "2026-10-03T11:51:54.800204+00:00"
+  },
+  "76561199628088159": {
+    "cs2red_nick": "atlantic"
+  },
+  "76561199815298997": {
+    "cs2red_nick": "Weblxs"
+  },
+  "76561198760828936": {
+    "cs2red_nick": "ClownPierce"
+  },
+  "76561199544468387": {
+    "cs2red_nick": "Pavel",
+    "activity": {
+      "AUTO": 2.778611111111108
+    },
+    "discord_name": "Pavel",
+    "updated_at": "2026-10-03T16:43:59.224481+00:00"
+  },
+  "76561198717827623": {
+    "cs2red_nick": "zapretik",
+    "activity": {
+      "AUTO": 0.2833333333333333
+    },
+    "discord_name": "zapretik",
+    "updated_at": "2026-10-01T16:55:52.244893"
+  },
+  "76561199850863147": {
+    "cs2red_nick": "dark_sorry"
+  },
+  "76561199831680185": {
+    "cs2red_nick": "пашапро 52 не 67"
+  },
+  "76561198714197570": {
+    "cs2red_nick": "Osuke"
+  },
+  "76561199817649114": {
+    "cs2red_nick": "Agy* раб"
+  },
+  "76561199808568674": {
+    "cs2red_nick": "zlowwy"
+  },
+  "76561199817095905": {
+    "cs2red_nick": "🤍Банан cs2red.ru"
+  },
+  "76561199240727772": {
+    "cs2red_nick": "'нью𓆩𓆪",
+    "activity": {
+      "AUTO": 2.1552777777777763
+    },
+    "discord_name": "'ctraxx𓆩𓆪",
+    "updated_at": "2026-10-04T10:02:52.487921+00:00"
+  },
+  "76561199218060777": {
+    "cs2red_nick": "Haha",
+    "activity": {
+      "AUTO": 1.7869444444444438
+    },
+    "discord_name": "Haha",
+    "updated_at": "2026-10-03T21:52:49.007550+00:00"
+  },
+  "76561199619291760": {
+    "cs2red_nick": "kise",
+    "activity": {
+      "AUTO": 0.42
+    },
+    "discord_name": "kise",
+    "updated_at": "2026-10-02T22:00:43.981151+00:00"
+  },
+  "76561198749807586": {
+    "cs2red_nick": "noobs"
+  },
+  "76561199813824196": {
+    "cs2red_nick": "𓆩❤𓆪"
+  },
+  "76561199846958894": {
+    "cs2red_nick": "KudaZ",
+    "activity": {
+      "AUTO": 1.4961111111111112
+    },
+    "discord_name": "KudaZ",
+    "updated_at": "2026-10-04T10:03:52.538366+00:00"
+  },
+  "76561198771605512": {
+    "cs2red_nick": "Тёмный  cs2red.ru",
+    "activity": {
+      "AUTO": 5.225555555555543
+    },
+    "discord_name": "Тёмный  cs2red.ru",
+    "updated_at": "2026-10-02T23:15:43.980661+00:00"
+  },
+  "76561199805893245": {
+    "cs2red_nick": "Black_end cs2red.ru"
+  },
+  "76561199680201848": {
+    "cs2red_nick": "󠁳",
+    "activity": {
+      "AUTO": 9.864444444444446
+    },
+    "discord_name": "󠁳",
+    "updated_at": "2026-10-04T10:03:52.538366+00:00"
+  },
+  "76561199550598526": {
+    "cs2red_nick": "sankaai"
+  },
+  "76561199839245487": {
+    "cs2red_nick": "Nothingness",
+    "activity": {
+      "AUTO": 0.39999999999999997
+    },
+    "discord_name": "Nothingness",
+    "updated_at": "2026-10-02T21:50:43.987956+00:00"
+  },
+  "76561198775545532": {
+    "cs2red_nick": "D1rtyWalker~cs2red.ru",
+    "activity": {
+      "AUTO": 1.6724999999999994
+    },
+    "discord_name": "D1rtyWalker~cs2red.ru",
+    "updated_at": "2026-10-03T16:43:59.224481+00:00"
+  },
+  "76561198769514242": {
+    "cs2red_nick": "PRO | desmuzz"
+  },
+  "76561198784082737": {
+    "cs2red_nick": "Castuch"
+  },
+  "76561198750797982": {
+    "cs2red_nick": "stv1ryy#клеши",
+    "activity": {
+      "AUTO": 0.29861111111111105
+    },
+    "discord_name": "stv1ryy#клеши",
+    "updated_at": "2026-10-02T16:37:17.783691+00:00"
+  },
+  "76561199466172270": {
+    "cs2red_nick": "sky",
+    "activity": {
+      "AUTO": 2.786388888888884
+    },
+    "discord_name": "sky",
+    "updated_at": "2026-10-03T16:31:59.220295+00:00"
+  },
+  "76561199111094603": {
+    "cs2red_nick": "N1me"
+  },
+  "76561198767641948": {
+    "cs2red_nick": "BeForce cs2red.ru",
+    "activity": {
+      "AUTO": 3.153055555555556
+    },
+    "discord_name": "BeForce cs2red.ru",
+    "updated_at": "2026-10-04T10:03:52.538366+00:00"
+  },
+  "76561198343367596": {
+    "cs2red_nick": "VeRo1x"
+  },
+  "76561199789499367": {
+    "cs2red_nick": "ВАЛЕРА ОЗОН"
+  },
+  "76561199880106147": {
+    "cs2red_nick": "FieryWolf"
+  },
+  "76561199822876229": {
+    "cs2red_nick": "Полосатик)",
+    "activity": {
+      "AUTO": 13.376111111111118
+    },
+    "discord_name": "Полосатик)",
+    "updated_at": "2026-10-03T22:04:49.033544+00:00"
+  },
+  "76561199389757877": {
+    "cs2red_nick": "Jele"
+  },
+  "76561198254444326": {
+    "cs2red_nick": "traizi"
+  },
+  "76561199195404539": {
+    "cs2red_nick": "kitaeza",
+    "activity": {
+      "AUTO": 1.9036111111111091
+    },
+    "discord_name": "kitaeza",
+    "updated_at": "2026-10-04T10:03:52.538366+00:00"
+  },
+  "76561199884108603": {
+    "cs2red_nick": "SpeedY"
+  },
+  "76561199619042983": {
+    "cs2red_nick": "(KDK) absolutxsoft"
+  },
+  "76561199472468109": {
+    "cs2red_nick": "runé"
+  },
+  "76561198991643709": {
+    "cs2red_nick": "T0P4IK",
+    "activity": {
+      "AUTO": 0.08333333333333333
+    },
+    "discord_name": "T0P4IK",
+    "updated_at": "2026-10-03T10:46:51.077320+00:00"
+  },
+  "76561199598076878": {
+    "cs2red_nick": "dekov1ch"
+  },
+  "76561199121207282": {
+    "cs2red_nick": "_GG BoY"
+  },
+  "76561199290573434": {
+    "cs2red_nick": "familiar9_9",
+    "activity": {
+      "AUTO": 0.13333333333333333
+    },
+    "discord_name": "familiar9_9",
+    "updated_at": "2026-10-02T20:40:44.038475+00:00"
+  },
+  "76561199220678569": {
+    "cs2red_nick": "󠁳⁧⁧🕷",
+    "activity": {
+      "AUTO": 3.841944444444438
+    },
+    "discord_name": "󠁳⁧⁧🕷",
+    "updated_at": "2026-10-03T22:14:49.126392+00:00"
+  },
+  "76561199650899293": {
+    "cs2red_nick": "Wequn4ik"
+  },
+  "76561199696545480": {
+    "cs2red_nick": "$wa100n",
+    "activity": {
+      "AUTO": 0.05944444444444444
+    },
+    "discord_name": "$wa100n",
+    "updated_at": "2026-10-04T09:51:52.368873+00:00"
+  },
+  "76561199880739464": {
+    "cs2red_nick": "414",
+    "activity": {
+      "AUTO": 1.017500000000001
+    },
+    "discord_name": "414",
+    "updated_at": "2026-10-02T16:41:17.740327+00:00"
+  },
+  "76561199805859233": {
+    "cs2red_nick": "ツＶＯＩＤ☯ cs2red.ru",
+    "activity": {
+      "AUTO": 1.4738888888888888
+    },
+    "discord_name": "ツＶＯＩＤ☯ cs2red.ru",
+    "updated_at": "2026-10-04T10:03:52.538366+00:00"
+  },
+  "76561199077171320": {
+    "cs2red_nick": "Вера Алимовна"
+  },
+  "76561199162568168": {
+    "discord_id": "1113899288192356402",
+    "updated_at": "2026-10-04T10:03:52.538366+00:00",
+    "discord_name": "rose",
+    "discord_joined": "2024-05-05T13:01:04.894000+00:00",
+    "steamid64": "76561199162568168",
+    "cs2red_nick": "not me",
+    "cs2red_role_id": 7,
+    "cs2red_role_name": "Спонсор",
+    "cs2red_admins": [
+      {
+        "id": 5267,
+        "userId": 8081,
+        "serverId": 1,
+        "roleId": 5,
+        "coreRoleId": 8,
+        "expires": 0,
+        "priority": 5,
+        "byUserId": 49,
+        "timestamp": 1772049066,
+        "freezeBy": null,
+        "freezeReason": null,
+        "byUser": {
+          "steamid64": "76561198977263238",
+          "nick": "El1s",
+          "avatarHash": "4f1d1ae27002047d4b51f2cb4e9bcbae36744cb5",
+          "plusEndingDate": 1794856966,
+          "plusPurchaseDate": 1734084558,
+          "ambassadorSinceAt": null,
+          "verify": true,
+          "id": 49,
+          "roleId": 5
+        },
+        "freezeUser": null
+      },
+      {
+        "id": 5268,
+        "userId": 8081,
+        "serverId": 3,
+        "roleId": 6,
+        "coreRoleId": 9,
+        "expires": 0,
+        "priority": 15,
+        "byUserId": 49,
+        "timestamp": 1772049076,
+        "freezeBy": null,
+        "freezeReason": null,
+        "byUser": {
+          "steamid64": "76561198977263238",
+          "nick": "El1s",
+          "avatarHash": "4f1d1ae27002047d4b51f2cb4e9bcbae36744cb5",
+          "plusEndingDate": 1794856966,
+          "plusPurchaseDate": 1734084558,
+          "ambassadorSinceAt": null,
+          "verify": true,
+          "id": 49,
+          "roleId": 5
+        },
+        "freezeUser": null
+      },
+      {
+        "id": 5269,
+        "userId": 8081,
+        "serverId": 1,
+        "roleId": 7,
+        "coreRoleId": 7,
+        "expires": 0,
+        "priority": 25,
+        "byUserId": 49,
+        "timestamp": 1772049087,
+        "freezeBy": null,
+        "freezeReason": null,
+        "byUser": {
+          "steamid64": "76561198977263238",
+          "nick": "El1s",
+          "avatarHash": "4f1d1ae27002047d4b51f2cb4e9bcbae36744cb5",
+          "plusEndingDate": 1794856966,
+          "plusPurchaseDate": 1734084558,
+          "ambassadorSinceAt": null,
+          "verify": true,
+          "id": 49,
+          "roleId": 5
+        },
+        "freezeUser": null
+      },
+      {
+        "id": 5270,
+        "userId": 8081,
+        "serverId": 6,
+        "roleId": 5,
+        "coreRoleId": 8,
+        "expires": 0,
+        "priority": 5,
+        "byUserId": 49,
+        "timestamp": 1772049095,
+        "freezeBy": null,
+        "freezeReason": null,
+        "byUser": {
+          "steamid64": "76561198977263238",
+          "nick": "El1s",
+          "avatarHash": "4f1d1ae27002047d4b51f2cb4e9bcbae36744cb5",
+          "plusEndingDate": 1794856966,
+          "plusPurchaseDate": 1734084558,
+          "ambassadorSinceAt": null,
+          "verify": true,
+          "id": 49,
+          "roleId": 5
+        },
+        "freezeUser": null
+      },
+      {
+        "id": 7397,
+        "userId": 8081,
+        "serverId": 0,
+        "roleId": 1,
+        "coreRoleId": null,
+        "expires": 0,
+        "priority": 10,
+        "byUserId": 278005,
+        "timestamp": 1789511580,
+        "freezeBy": null,
+        "freezeReason": null,
+        "byUser": {
+          "steamid64": "76561199515436880",
+          "nick": "Lucky",
+          "avatarHash": "594f4e4b7df099f81af5835bac49c87927a72de1",
+          "plusEndingDate": 1794130617,
+          "plusPurchaseDate": 1753431939,
+          "ambassadorSinceAt": null,
+          "verify": false,
+          "id": 278005,
+          "roleId": 4
+        },
+        "freezeUser": null
+      }
+    ],
+    "cs2red_vips": [
+      {
+        "id": 8953,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1716968350,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 10550,
+        "userId": 8081,
+        "serverId": 3,
+        "group": "BASIC",
+        "expires": 1718384067,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 11048,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1717956566,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 11212,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1718040605,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 12520,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1718698539,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 14353,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1719629820,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 14766,
+        "userId": 8081,
+        "serverId": 3,
+        "group": "BASIC",
+        "expires": 1720380201,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 21715,
+        "userId": 8081,
+        "serverId": 3,
+        "group": "BASIC",
+        "expires": 1722777009,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 41353,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "LITE",
+        "expires": 1727003958,
+        "priority": 22,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 42428,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1727144313,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 46246,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "LITE",
+        "expires": 1728224025,
+        "priority": 22,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 46569,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1728085401,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 46905,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1728172327,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 62332,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1731350505,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 62489,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1731400779,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 62916,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1731460891,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 63610,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1731623289,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 64974,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1731857701,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 69264,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1732750151,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 70886,
+        "userId": 8081,
+        "serverId": 1,
+        "group": "MEDIUM",
+        "expires": 1735665986,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 70916,
+        "userId": 8081,
+        "serverId": 3,
+        "group": "MEDIUM",
+        "expires": 1735671402,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 73297,
+        "userId": 8081,
+        "serverId": 3,
+        "group": "MEDIUM",
+        "expires": 0,
+        "priority": 33,
+        "timestamp": null,
+        "disable": "tab_tag"
+      },
+      {
+        "id": 73756,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1733697691,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 73795,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "LITE",
+        "expires": 1733753610,
+        "priority": 22,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 77160,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1734374945,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 79306,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1734830133,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 79681,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1734999645,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 80450,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1735089982,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 81156,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1735261614,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 82372,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1735549732,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 82709,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1735631208,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 83614,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1735839855,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 83760,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1735868805,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 85829,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1736289955,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 86616,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1736451806,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 89400,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1736914406,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 89807,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1736990217,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 90568,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1737148665,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 96528,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1738014480,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 97112,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1738117743,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 102549,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1738980060,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 106117,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1739507465,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 110521,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1740078646,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 111144,
+        "userId": 8081,
+        "serverId": 1,
+        "group": "MEDIUM",
+        "expires": 0,
+        "priority": 33,
+        "timestamp": null,
+        "disable": "tab_tag"
+      },
+      {
+        "id": 111463,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1740186394,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 115250,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1740703426,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 117973,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1741042404,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 118585,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1741104128,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 124402,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1741828081,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 126532,
+        "userId": 8081,
+        "serverId": 6,
+        "group": "MEDIUM",
+        "expires": 0,
+        "priority": 33,
+        "timestamp": null,
+        "disable": "tab_tag"
+      },
+      {
+        "id": 127376,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1742185882,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 129853,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1742516884,
+        "priority": 11,
+        "timestamp": null,
+        "disable": "tab_tag"
+      },
+      {
+        "id": 135444,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1743238940,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 135446,
+        "userId": 8081,
+        "serverId": 2,
+        "group": "LITE",
+        "expires": 0,
+        "priority": 22,
+        "timestamp": null,
+        "disable": "tab_tag"
+      },
+      {
+        "id": 135447,
+        "userId": 8081,
+        "serverId": 5,
+        "group": "LITE",
+        "expires": 0,
+        "priority": 22,
+        "timestamp": null,
+        "disable": "tab_tag"
+      },
+      {
+        "id": 137608,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1743484303,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 141932,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1744052774,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 144428,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1744392706,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 145283,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1744511502,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 148216,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1744907463,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 151572,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1745367245,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 152111,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1745419423,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 165808,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1747343588,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 173853,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1748589673,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 176746,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1749030668,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 178821,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1749366282,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 179960,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1749517790,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 182723,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1749949283,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 186700,
+        "userId": 8081,
+        "serverId": 3,
+        "group": "ULTRA",
+        "expires": 0,
+        "priority": 44,
+        "timestamp": null,
+        "disable": "tab_tag"
+      },
+      {
+        "id": 187957,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1750748718,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 188524,
+        "userId": 8081,
+        "serverId": 4,
+        "group": "BASIC",
+        "expires": 1751407374,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 193916,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1751775201,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 196967,
+        "userId": 8081,
+        "serverId": 6,
+        "group": "ULTRA",
+        "expires": 0,
+        "priority": 44,
+        "timestamp": null,
+        "disable": "tab_tag"
+      },
+      {
+        "id": 199426,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1752715703,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 200123,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1752881265,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 201621,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "LITE",
+        "expires": 1753733185,
+        "priority": 22,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 204075,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1753602379,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 204819,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "ULTRA",
+        "expires": 1754309164,
+        "priority": 44,
+        "timestamp": null,
+        "disable": "tab_tag"
+      },
+      {
+        "id": 206095,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1753973201,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 207669,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1754228663,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 207977,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1754290996,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 210080,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1754639956,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 211026,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1754790276,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 212577,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1755070279,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 213474,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1755276481,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 214506,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1754813313,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 216356,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1755050484,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 217526,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1755222039,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 218434,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1755386683,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 222761,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1756049839,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 229073,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1756889103,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 230367,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1757065356,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 231622,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1757213478,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 235534,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "ULTRA",
+        "expires": 1758430416,
+        "priority": 44,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 235988,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1757907124,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 239707,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "ULTRA",
+        "expires": 1759046975,
+        "priority": 44,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 241853,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1758766526,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 243096,
+        "userId": 8081,
+        "serverId": 6,
+        "group": "EXTREME",
+        "expires": 1761501175,
+        "priority": 55,
+        "timestamp": 1758390775,
+        "disable": null
+      },
+      {
+        "id": 247271,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1759566708,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 248497,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1759735542,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 250350,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1760041541,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 252519,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1762892065,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 252983,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1760387012,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 257424,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1761203016,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 259802,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1761532063,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 262684,
+        "userId": 8081,
+        "serverId": 6,
+        "group": "EXTREME",
+        "expires": 1763133584,
+        "priority": 55,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 263562,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1762073838,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 270720,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1762996753,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 272866,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1763281127,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 276085,
+        "userId": 8081,
+        "serverId": 6,
+        "group": "EXTREME",
+        "expires": 1766254674,
+        "priority": 55,
+        "timestamp": 1763144274,
+        "disable": null
+      },
+      {
+        "id": 285061,
+        "userId": 8081,
+        "serverId": 3,
+        "group": "EXTREME",
+        "expires": 0,
+        "priority": 55,
+        "timestamp": 1764262656,
+        "disable": null
+      },
+      {
+        "id": 285238,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1764812997,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 285939,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1764897480,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 287081,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1765052668,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 288790,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1765266254,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 289501,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1765331397,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 293281,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1765767297,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 293931,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1765869618,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 297955,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1766342435,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 298158,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1766367690,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 301660,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1766819221,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 303700,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1767080233,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 308162,
+        "userId": 8081,
+        "serverId": 6,
+        "group": "EXTREME",
+        "expires": 0,
+        "priority": 55,
+        "timestamp": 1767030665,
+        "disable": null
+      },
+      {
+        "id": 308307,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1767574906,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 314435,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1768182867,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 320526,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1768841163,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 326894,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1769587602,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 328838,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1769794104,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 330634,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1769671597,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 331953,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1769846567,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 334971,
+        "userId": 8081,
+        "serverId": 5,
+        "group": "MEDIUM",
+        "expires": 1772712219,
+        "priority": 33,
+        "timestamp": 1769947419,
+        "disable": null
+      },
+      {
+        "id": 340983,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1773350408,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 345874,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1771312440,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 348846,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1771647012,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 351078,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1771906823,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 352605,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1772066545,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 355097,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1772489568,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 358268,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1773081240,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 367084,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1774211002,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 367267,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1774232080,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 380506,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1775876643,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 396263,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "BASIC",
+        "expires": 1777684730,
+        "priority": 11,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 401474,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1778334001,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 401476,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1778334028,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 405411,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1778981530,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 413893,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1780453716,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 414839,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "ULTRA",
+        "expires": 1780694571,
+        "priority": 44,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 419075,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1781399253,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 420368,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1781659192,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 420740,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "ULTRA",
+        "expires": 1781745693,
+        "priority": 44,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 425539,
+        "userId": 8081,
+        "serverId": 5,
+        "group": "ULTRA",
+        "expires": 0,
+        "priority": 44,
+        "timestamp": 1782738463,
+        "disable": null
+      },
+      {
+        "id": 426098,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1782867858,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 429272,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1783559045,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 429598,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1783818572,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 430009,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1783733813,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 431297,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1783990852,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 434853,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "ULTRA",
+        "expires": 1784816677,
+        "priority": 44,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 435490,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1784857575,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 436876,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1785114039,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 438301,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1785363407,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 440443,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1785805902,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 450646,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1787706812,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 456749,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1788743975,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 462248,
+        "userId": 8081,
+        "serverId": 8,
+        "group": "MEDIUM",
+        "expires": 1790212459,
+        "priority": 33,
+        "timestamp": 1789607659,
+        "disable": null
+      },
+      {
+        "id": 463937,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1789780469,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 465211,
+        "userId": 8081,
+        "serverId": 8,
+        "group": "ULTRA",
+        "expires": 1789987486,
+        "priority": 44,
+        "timestamp": 1789901086,
+        "disable": null
+      },
+      {
+        "id": 467795,
+        "userId": 8081,
+        "serverId": 0,
+        "group": "MEDIUM",
+        "expires": 1790212157,
+        "priority": 33,
+        "timestamp": null,
+        "disable": null
+      },
+      {
+        "id": 470580,
+        "userId": 8081,
+        "serverId": 8,
+        "group": "MEDIUM",
+        "expires": 1793119917,
+        "priority": 33,
+        "timestamp": 1790527917,
+        "disable": null
+      }
+    ],
+    "active_bans": [],
+    "active_mutes": [],
+    "banned": false,
+    "muted": false,
+    "activity_hours": 8.713333333333345,
+    "steam_avatar": "https://avatars.steamstatic.com/23ec2ec9948c746c4423933a96fd9c6dc8daa394_full.jpg",
+    "steam_status": "online",
+    "steam_nick": "not me",
+    "steam_bans": {
+      "vac_banned": false,
+      "number_of_vac_bans": 0,
+      "days_since_last_ban": 0,
+      "community_banned": false,
+      "number_of_game_bans": 0,
+      "economy_ban": "none"
+    },
+    "activity": {
+      "AUTO": 11.22083333333343
+    },
+    "notes": "1"
+  }
+}
