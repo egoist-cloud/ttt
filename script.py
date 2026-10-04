@@ -1,5 +1,5 @@
 """
-Quantum - бот клана (v7: рабочие cookies cs2red + 429-safe)
+Quantum - бот клана (v8: рабочий /link_all + защита ролей от сбоя cs2red)
 """
 import os
 import re
@@ -96,7 +96,7 @@ AI_CHAT_COOLDOWN_SEC = int(os.getenv("AI_CHAT_COOLDOWN_SEC", "5"))
 BOT_START_TIME = time.time()
 
 # ============================================================
-# CS2RED — ВСЕ 15 COOKIES
+# CS2RED — 15 COOKIES
 # ============================================================
 CS2RED_COOKIES = {k: v for k, v in {
     "token": os.getenv("CS2RED_TOKEN", ""),
@@ -155,7 +155,7 @@ CLAN_ROLE_MAP = {
 SYNC_INTERVAL_MINUTES = int(os.getenv("SYNC_INTERVAL_MINUTES", "15"))
 BAN_CHECK_INTERVAL_HOURS = 24
 MUTE_CHECK_INTERVAL_HOURS = 2
-REQUEST_DELAY = 1.0
+REQUEST_DELAY = 0.3  # было 1.0, ускоряем массовые операции
 
 ACTIVITY_TRACK_SECONDS = 60
 CLANS_CACHE_TTL = 300
@@ -314,6 +314,7 @@ class API:
         self.session: aiohttp.ClientSession | None = None
         self.sem = asyncio.Semaphore(4)
         self._clans_cache = {"ts": 0.0, "data": None}
+        self.last_status: int | None = None   # ← для диагностики 403
 
     async def start(self):
         connector = aiohttp.TCPConnector(
@@ -326,7 +327,7 @@ class API:
             timeout=aiohttp.ClientTimeout(total=25, connect=15),
             connector=connector,
         )
-        print(f"🌐 API session started. Cookies: {len(CS2RED_COOKIES)}, headers: {len(CS2RED_HEADERS)}")
+        print(f"🌐 API session. Cookies: {len(CS2RED_COOKIES)}, Headers: {len(CS2RED_HEADERS)}")
 
     async def close(self):
         if self.session and not self.session.closed:
@@ -339,11 +340,13 @@ class API:
             try:
                 async with self.sem:
                     async with self.session.get(url, params=params) as r:
+                        self.last_status = r.status
                         if r.status == 403:
-                            print(f"🔴 403 Forbidden на {url} — cookies/headers не приняты")
+                            print(f"🔴 403 Forbidden на {url} — cookies не приняты")
                             return None
                         if r.status == 429:
-                            return None
+                            await asyncio.sleep(3)
+                            continue
                         r.raise_for_status()
                         return await r.json(content_type=None)
             except NET_ERRORS as e:
@@ -364,6 +367,7 @@ class API:
             try:
                 async with self.sem:
                     async with self.session.get(url) as r:
+                        self.last_status = r.status
                         if r.status == 403:
                             print(f"🔴 403 Forbidden на {url}")
                             return None
@@ -375,7 +379,7 @@ class API:
                 if attempt < 2:
                     await asyncio.sleep(2 ** attempt)
                     continue
-                print(f"⚠️ GET {url}: сетевой сбой после 3 попыток: {e}")
+                print(f"⚠️ GET {url}: сетевой сбой: {e}")
                 return None
             except Exception as e:
                 print(f"⚠️ GET {url}: {e}")
@@ -534,10 +538,10 @@ class LLM7Client:
                         try:
                             return data["choices"][0]["message"]["content"]
                         except (KeyError, IndexError, TypeError):
-                            print(f"⚠️ LLM7: неожиданный ответ: {str(data)[:200]}")
+                            print(f"⚠️ LLM7: неожиданный ответ")
                             return None
                 except asyncio.TimeoutError:
-                    print(f"⚠️ LLM7: таймаут {use_timeout} сек (попытка {attempt})")
+                    print(f"⚠️ LLM7: таймаут {use_timeout} сек")
                     if attempt == 2:
                         return None
                 except Exception as e:
@@ -856,26 +860,33 @@ def utc_stamp() -> str:
 
 
 # ============================================================
-# СИНХРОНИЗАЦИЯ РОЛЕЙ
+# СИНХРОНИЗАЦИЯ РОЛЕЙ (с защитой от сбоя API)
 # ============================================================
 async def sync_role_by_id(guild, member, steam_id):
+    """Синхронизация роли по level. НЕ трогает роли, если cs2red недоступен."""
     user = await api.cs2red_user(steam_id)
     if user is None:
-        return f"❌ {member.display_name}: не найден"
+        # Возможные причины: 403, 404, timeout. Роли НЕ трогаем.
+        return f"⚠️ {member.display_name}: cs2red не ответил, роль не тронута"
+
     tn = ROLE_MAP.get(user.get("roleId"))
     managed = {n for n in ROLE_MAP.values() if n}
     cur = {r for r in member.roles if r.name in managed}
+
     if tn is None:
         if cur:
             for r in cur:
                 await member.remove_roles(r)
             return f"🔄 {member.display_name}: сняты"
         return f"ℹ️ {member.display_name}: без изменений"
+
     target = discord.utils.get(guild.roles, name=tn)
     if target is None:
         return f"⚠️ роль '{tn}' не найдена"
+
     if cur == {target}:
         return f"✅ {member.display_name}: уже '{tn}'"
+
     for r in cur:
         if r != target:
             await member.remove_roles(r)
@@ -887,18 +898,29 @@ async def sync_role_by_id(guild, member, steam_id):
 
 
 async def sync_clan_role_by_id(guild, member, steam_id):
+    """Синхронизация роли клана. НЕ трогает роли, если cs2red недоступен."""
     if not CLAN_ROLE_MAP:
         return f"ℹ️ CLAN_ROLE_MAP пуст"
+
+    # 1) проверяем, что API жив
+    user = await api.cs2red_user(steam_id)
+    if user is None:
+        return f"⚠️ {member.display_name}: cs2red не ответил, роли клана не тронуты"
+
+    # 2) теперь точно знаем — API работает, можно принимать решения
     clan = await api.player_clan(steam_id)
     managed = set(CLAN_ROLE_MAP.values())
     held = [r for r in member.roles if r.id in managed]
+
     if clan is None:
+        # Игрок точно без клана — снимаем
         for r in held:
             try:
                 await member.remove_roles(r)
             except discord.Forbidden:
                 pass
         return f"🔄 клан снят" if held else f"ℹ️ без клана"
+
     tid = CLAN_ROLE_MAP.get(clan["clan_id"])
     if tid is None:
         for r in held:
@@ -907,15 +929,18 @@ async def sync_clan_role_by_id(guild, member, steam_id):
             except discord.Forbidden:
                 pass
         return f"ℹ️ клан без роли ({clan['clan_name']})"
+
     target = guild.get_role(tid)
     if target is None:
         return f"⚠️ роль {tid} не найдена"
+
     for r in held:
         if r.id != tid:
             try:
                 await member.remove_roles(r)
             except discord.Forbidden:
                 pass
+
     if target in member.roles:
         return f"✅ уже в '{clan['clan_name']}'"
     try:
@@ -1400,7 +1425,8 @@ async def link(i, steam_id: str):
     u = await api.cs2red_user(steam_id)
     if u is None:
         await safe_send(i.followup,
-            f"❌ Игрок `{steam_id}` не найден на cs2red (проверь SteamID или cookies).",
+            f"❌ Игрок `{steam_id}` не найден на cs2red. "
+            f"Проверь: SteamID правильный? Cookies живые?",
             ephemeral=True)
         return
     await links_store.update(lambda d: d.update({str(i.user.id): steam_id}))
@@ -1544,76 +1570,129 @@ async def check_mutes(i, member: str):
     await _check_single_punishment(i, t, "mute")
 
 
+# ============================================================
+# /link_all — РАБОЧАЯ ВЕРСИЯ (с прогрессом и без зависания)
+# ============================================================
 @bot.tree.command(name="link_all", description="Массовая привязка из mass_links.json")
 async def link_all(i):
     if not await _admin_guard(i):
         return
     await i.response.defer(ephemeral=True)
+
     f = data_path("mass_links.json")
     if not f.exists():
         await safe_send(i.followup, "❌ Файл `mass_links.json` не найден.", ephemeral=True)
         return
+
     try:
         with open(f, "r", encoding="utf-8") as fp:
             data = json.load(fp)
         if not isinstance(data, dict):
             raise ValueError("должен быть JSON-объект")
-    except Exception as e:
-        await safe_send(i.followup, f"❌ {e}", ephemeral=True)
+    except json.JSONDecodeError as e:
+        await safe_send(i.followup,
+            f"❌ JSON повреждён: {e}\n"
+            f"Проверь файл на https://jsonlint.com — там нет закрывающей скобки "
+            f"или пропущена запятая.", ephemeral=True)
         return
+    except Exception as e:
+        await safe_send(i.followup, f"❌ Ошибка чтения: {e}", ephemeral=True)
+        return
+
+    total = len(data)
+    print(f"📥 /link_all: {total} записей")
 
     added = []
     skip_not_sid = []
     no_member = []
     not_on_site = []
+    already = []
     other = []
+
+    processed = 0
+    last_progress = 0
 
     for did, sid in data.items():
         sid = str(sid).strip()
+
+        # Discord ID корректный?
         if not (did.isdigit() and 17 <= len(did) <= 20):
             other.append(f"`{did}`: не Discord ID")
+            processed += 1
             continue
+
+        # SteamID корректный? (если нет — это ник, пропускаем)
         if not (sid.isdigit() and len(sid) == 17 and sid.startswith("7656119")):
             skip_not_sid.append(f"`{did}`: не SteamID (`{sid}`)")
+            processed += 1
             continue
+
+        # Уже привязан к этому же SteamID — пропускаем без запроса к API
+        existing = links_store.read()
+        if existing.get(str(did)) == sid:
+            already.append(f"`{did}` → `{sid}`")
+            processed += 1
+            continue
+
+        # Участник есть на сервере?
         m = i.guild.get_member(int(did))
         if m is None:
-            no_member.append(f"`{did}` ({sid}): нет на сервере")
+            no_member.append(f"`{did}` ({sid})")
+            processed += 1
             continue
-        user = await api.cs2red_user(sid)
-        if user is None:
-            not_on_site.append(f"{m.display_name}: `{sid}` не найден на cs2red")
-            continue
-        existing = links_store.read()
+
+        # SteamID не занят другим Discord?
         owner = next((d for d, s in existing.items() if s == sid), None)
         if owner and owner != str(did):
             other.append(f"{m.display_name}: SteamID занят <@{owner}>")
+            processed += 1
             continue
+
+        # Игрок есть на cs2red?
+        user = await api.cs2red_user(sid)
+        if user is None:
+            not_on_site.append(f"{m.display_name}: `{sid}`")
+            processed += 1
+            continue
+
+        # Привязываем
         await links_store.update(lambda d: d.update({str(did): sid}))
         added.append(f"✅ {m.display_name} → `{sid}` (cs2red: {user.get('nick', '-')})")
+        processed += 1
+
+        # Прогресс раз в 20 записей
+        if processed - last_progress >= 20:
+            last_progress = processed
+            try:
+                await safe_send(i.followup,
+                    f"⏳ Прогресс: {processed}/{total}…", ephemeral=True)
+            except Exception:
+                pass
+
         await asyncio.sleep(REQUEST_DELAY)
 
     text = (
         f"📊 **Массовая привязка**\n"
         f"✅ Добавлено: **{len(added)}**\n"
-        f"⏭ Не SteamID: **{len(skip_not_sid)}**\n"
+        f"ℹ️ Уже привязано: **{len(already)}**\n"
+        f"⏭ Не SteamID (ники): **{len(skip_not_sid)}**\n"
         f"⚠️ Нет на сервере: **{len(no_member)}**\n"
         f"⚠️ Нет на cs2red: **{len(not_on_site)}**\n"
         f"⚠️ Прочее: **{len(other)}**\n\n"
     )
     if added:
-        text += "**Добавленные:**\n" + "\n".join(added[:15]) + "\n\n"
+        text += "**Последние добавленные:**\n" + "\n".join(added[-10:]) + "\n\n"
     if not_on_site:
-        text += "**Нет на cs2red:**\n" + "\n".join(not_on_site[:15]) + "\n\n"
+        text += "**Нет на cs2red:**\n" + "\n".join(not_on_site[:10]) + "\n\n"
     if no_member:
         text += "**Нет на сервере:**\n" + "\n".join(no_member[:10]) + "\n\n"
     if other:
         text += "**Прочее:**\n" + "\n".join(other[:10])
     await safe_send(i.followup, text[:1900], ephemeral=True)
     await log_to_channel(i.client,
-        f"📊 /link_all: +{len(added)} / не SID {len(skip_not_sid)} / "
-        f"нет на сервере {len(no_member)} / нет на cs2red {len(not_on_site)} / "
-        f"прочее {len(other)}")
+        f"📊 /link_all: +{len(added)} / уже {len(already)} / "
+        f"не SID {len(skip_not_sid)} / нет на сервере {len(no_member)} / "
+        f"нет на cs2red {len(not_on_site)} / прочее {len(other)}")
 
 
 @bot.tree.command(name="export_members", description="Выгрузить привязки в mass_links.json")
