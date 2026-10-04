@@ -1,13 +1,12 @@
 """
-Quantum - бот клана (оптимизированная версия)
-- HTTP-сервер для прохождения проверки работоспособности на Render
-- /check_bans и /check_mutes проверяют только выбранного игрока (автодополнение)
-- Проверка банов/мутов через ПАРСИНГ HTML cs2red.ru (API недоступен)
-- Активным считается наказание, если в строке НЕТ "Размучен"/"Разбанен"
-- /ping - проверка живости бота
-- /ai - обращение к ИИ (LLM7.io) в любом канале сервера
-- ИИ-анализ работы бота через LLM7.io (бесплатно, api_key="unused")
-- Автоотчёт ИИ раз в 60 минут в отдельный канал
+Quantum - бот клана (полная исправленная версия)
+- HTTP-сервер для Render
+- /link, /unlink, /ping, /ai — публичные
+- /ai — ИИ через LLM7.io с fallback на Groq
+- /check_bans, /check_mutes — автодополнение по привязанным
+- Парсинг HTML cs2red.ru для банов/мутов
+- Автосинхронизация ролей, проверка наказаний, трекер активности
+- Ежечасный ИИ-анализ работы бота в отдельный канал
 """
 import os
 import re
@@ -29,7 +28,6 @@ from dotenv import load_dotenv
 from flask import Flask
 from bs4 import BeautifulSoup
 
-# Windows-консоль: не даём print с эмодзи уронить бота
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 if hasattr(sys.stderr, "reconfigure"):
@@ -37,9 +35,9 @@ if hasattr(sys.stderr, "reconfigure"):
 
 load_dotenv()
 
-# ------------------------------------------------------------
+# ============================================================
 # ПАПКА ДАННЫХ
-# ------------------------------------------------------------
+# ============================================================
 DATA_DIR = Path(os.getenv("DATA_DIR", ".")).resolve()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -78,9 +76,8 @@ AUTO_ROLE_ID = int(os.getenv("AUTO_ROLE_ID", "0"))
 BYPASS_ROLE_ID = int(os.getenv("BYPASS_ROLE_ID", "0"))
 NO_COOLDOWN_ROLE_ID = 1554633825311654048
 
-# --- РОЛИ ЗА БАНЫ И МУТЫ ---
-BANNED_ROLE_ID = 1554791570161668218    # роль за бан
-MUTED_ROLE_ID = 1554821496650862632     # роль за мут
+BANNED_ROLE_ID = 1554791570161668218
+MUTED_ROLE_ID = 1554821496650862632
 ACTIVITY_ROLE_ID = 1448368118190837800
 
 CLAN_NAME = os.getenv("CLAN_NAME", "TALENT")
@@ -91,16 +88,22 @@ ACTIVITY_GOAL_HOURS = 8
 ACTIVITY_MIN_HOURS = 8
 APPLY_EMBED_COLOR = 0x2B2D31
 
-# --- AI-анализ / LLM7 ---
-AI_REPORT_CHANNEL_ID = 1554796338661826660      # канал для ИИ-отчётов
+# --- AI / LLM7 / Groq ---
+AI_REPORT_CHANNEL_ID = 1554796338661826660
 LLM7_BASE_URL = "https://api.llm7.io/v1"
-LLM7_API_KEY = "unused"                          # бесплатный доступ, ключ не нужен
+LLM7_API_KEY = os.getenv("LLM7_API_KEY", "unused")
 LLM7_MODEL = "default"
-AI_ANALYSIS_INTERVAL_MINUTES = 60                # раз в час
-AI_CHAT_HISTORY_SIZE = 10                        # сообщений в истории на канал
-AI_CHAT_MAX_TOKENS = 800                         # максимум токенов в ответе /ai
+AI_ANALYSIS_INTERVAL_MINUTES = 60
 
-# Время старта бота (для /ping)
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+GROQ_MODEL = "llama-3.3-70b-versatile"
+
+AI_CHAT_HISTORY_SIZE = 6
+AI_CHAT_MAX_TOKENS = 500
+AI_CHAT_TIMEOUT = 25
+AI_CHAT_MODEL = "fast"
+
 BOT_START_TIME = time.time()
 
 CS2RED_COOKIES = {k: v for k, v in {
@@ -201,7 +204,7 @@ seen_store = JsonStore(data_path("seen.json"), dict)
 
 
 # ============================================================
-# HTTP-КЛИЕНТ CS2RED / STEAM
+# API: cs2red / Steam
 # ============================================================
 class API:
     def __init__(self):
@@ -248,7 +251,6 @@ class API:
                 print(f"⚠️ GET {url}: {e}")
                 return None
 
-    # --- cs2red (API) ---
     async def cs2red_user(self, steam_id: str):
         data = await self._get_json(
             "https://cs2red.ru/api/admin/users",
@@ -311,7 +313,6 @@ class API:
                     result[nick] = max(result.get(nick, 0), t)
         return result
 
-    # --- Steam ---
     async def _steam_get(self, iface: str, params: dict):
         key = os.getenv("STEAM_API_KEY")
         if not key:
@@ -348,29 +349,25 @@ api = API()
 
 
 # ============================================================
-# КЛИЕНТ LLM7.IO (бесплатный ИИ без ключа)
+# LLM7 КЛИЕНТ
 # ============================================================
 class LLM7Client:
-    """
-    Минимальный клиент к https://api.llm7.io/v1 (OpenAI-совместимый).
-    Бесплатный тариф: api_key можно передавать как "unused".
-    Лимиты free-tier: ~100k токенов/день, 250 req/h, 60 req/m, 1 req/s.
-    """
-
     def __init__(self, base_url: str = LLM7_BASE_URL,
                  api_key: str = LLM7_API_KEY,
-                 model: str = LLM7_MODEL):
+                 model: str = LLM7_MODEL,
+                 timeout: int = 25):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
+        self.timeout = timeout
         self._session: aiohttp.ClientSession | None = None
-        self._lock = asyncio.Lock()   # 1 r/s гарантированно
+        self._lock = asyncio.Lock()
         self._last_call = 0.0
 
     async def start(self):
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=60)
+                timeout=aiohttp.ClientTimeout(total=self.timeout)
             )
 
     async def close(self):
@@ -378,26 +375,24 @@ class LLM7Client:
             await self._session.close()
 
     async def chat(self, prompt: str, system: str | None = None,
-                   history: list | None = None,
-                   max_tokens: int = 900, temperature: float = 0.5) -> str | None:
-        """
-        Отправить один запрос к LLM7. Возвращает текст ответа или None.
-        history - список сообщений [{"role": "user"/"assistant", "content": "..."}]
-                  для поддержания контекста диалога.
-        """
+                   history: list | None = None, model: str | None = None,
+                   max_tokens: int = 500, temperature: float = 0.6,
+                   timeout: int | None = None) -> str | None:
         if self._session is None or self._session.closed:
             await self.start()
+
+        use_model = model or self.model
+        use_timeout = timeout or self.timeout
 
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
         if history:
-            # Обрезаем историю, чтобы не превышать лимиты
-            messages.extend(history[-(AI_CHAT_HISTORY_SIZE):])
+            messages.extend(history[-AI_CHAT_HISTORY_SIZE:])
         messages.append({"role": "user", "content": prompt})
 
         payload = {
-            "model": self.model,
+            "model": use_model,
             "messages": messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
@@ -408,56 +403,139 @@ class LLM7Client:
         }
 
         async with self._lock:
-            # соблюдаем 1 запрос/сек на free-тарифе
             elapsed = time.time() - self._last_call
             if elapsed < 1.1:
                 await asyncio.sleep(1.1 - elapsed)
-            try:
-                async with self._session.post(
-                    f"{self.base_url}/chat/completions",
-                    json=payload,
-                    headers=headers,
-                ) as r:
-                    self._last_call = time.time()
-                    if r.status == 429:
-                        print("⚠️ LLM7: rate-limit (429)")
-                        return None
-                    if r.status != 200:
-                        body = await r.text()
-                        print(f"⚠️ LLM7: статус {r.status}: {body[:200]}")
-                        return None
-                    data = await r.json(content_type=None)
-            except Exception as e:
-                self._last_call = time.time()
-                print(f"⚠️ LLM7: ошибка запроса: {e}")
-                return None
 
-        try:
-            return data["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError):
-            print(f"⚠️ LLM7: неожиданный ответ: {str(data)[:200]}")
-            return None
+            for attempt in (1, 2):
+                try:
+                    async with self._session.post(
+                        f"{self.base_url}/chat/completions",
+                        json=payload, headers=headers,
+                        timeout=aiohttp.ClientTimeout(total=use_timeout),
+                    ) as r:
+                        self._last_call = time.time()
+
+                        if r.status == 429:
+                            print("⚠️ LLM7: rate-limit (429)")
+                            return None
+                        if r.status != 200:
+                            body = await r.text()
+                            print(f"⚠️ LLM7: статус {r.status}: {body[:200]}")
+                            return None
+
+                        data = await r.json(content_type=None)
+                        try:
+                            return data["choices"][0]["message"]["content"]
+                        except (KeyError, IndexError, TypeError):
+                            print(f"⚠️ LLM7: неожиданный ответ: {str(data)[:200]}")
+                            return None
+                except asyncio.TimeoutError:
+                    print(f"⚠️ LLM7: таймаут {use_timeout} сек (попытка {attempt})")
+                    if attempt == 2:
+                        return None
+                except Exception as e:
+                    self._last_call = time.time()
+                    print(f"⚠️ LLM7: ошибка запроса: {e}")
+                    return None
+        return None
 
 
 llm7 = LLM7Client()
 
 
 # ============================================================
-# ПАМЯТЬ ДИАЛОГА /ai (по каналам)
+# GROQ КЛИЕНТ (fallback)
 # ============================================================
-ai_chat_history: dict[int, deque] = defaultdict(lambda: deque(maxlen=AI_CHAT_HISTORY_SIZE))
+class GroqClient:
+    def __init__(self):
+        self._session: aiohttp.ClientSession | None = None
+
+    async def start(self):
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=30)
+            )
+
+    async def close(self):
+        if self._session and not self._session.closed:
+            await self._session.close()
+
+    async def chat(self, prompt, system=None, history=None,
+                   max_tokens=500, temperature=0.6) -> str | None:
+        if not GROQ_API_KEY:
+            return None
+        if self._session is None or self._session.closed:
+            await self.start()
+
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        if history:
+            messages.extend(history[-AI_CHAT_HISTORY_SIZE:])
+        messages.append({"role": "user", "content": prompt})
+
+        headers = {
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": GROQ_MODEL,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        try:
+            async with self._session.post(
+                f"{GROQ_BASE_URL}/chat/completions",
+                json=payload, headers=headers,
+            ) as r:
+                if r.status != 200:
+                    print(f"⚠️ Groq: {r.status}: {(await r.text())[:200]}")
+                    return None
+                data = await r.json(content_type=None)
+                return data["choices"][0]["message"]["content"]
+        except Exception as e:
+            print(f"⚠️ Groq: {e}")
+            return None
+
+
+groq = GroqClient()
+
+
+async def ai_chat_with_fallback(prompt, system=None, history=None,
+                                model="fast", max_tokens=500,
+                                temperature=0.6, timeout=25) -> tuple[str | None, str]:
+    """Возвращает (ответ, источник). Источник: 'llm7' | 'groq' | 'none'."""
+    answer = await llm7.chat(prompt, system=system, history=history,
+                             model=model, max_tokens=max_tokens,
+                             temperature=temperature, timeout=timeout)
+    if answer:
+        return answer, "llm7"
+
+    if GROQ_API_KEY:
+        print("🔁 LLM7 не ответил, переключаюсь на Groq...")
+        answer = await groq.chat(prompt, system=system, history=history,
+                                 max_tokens=max_tokens, temperature=temperature)
+        if answer:
+            return answer, "groq"
+
+    return None, "none"
+
+
+# ============================================================
+# ПАМЯТЬ ДИАЛОГА /ai
+# ============================================================
+ai_chat_history: dict[int, deque] = defaultdict(
+    lambda: deque(maxlen=AI_CHAT_HISTORY_SIZE)
+)
 ai_chat_locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 
 # ============================================================
-# ПАРСИНГ HTML CS2RED - ПРОВЕРКА АКТИВНОГО МУТА/БАНА
+# ПАРСИНГ HTML CS2RED
 # ============================================================
 async def check_punishment_via_html(steam_id: str, kind: str) -> bool:
-    """
-    Идёт на cs2red.ru/bans?category=MUTES|BANS и ищет строку с SteamID.
-    Возвращает True, если наказание активно (в строке нет 'Размучен'/'Разбанен').
-    kind: 'mutes' или 'bans'
-    """
     category = "MUTES" if kind == "mutes" else "BANS"
     url = f"https://cs2red.ru/bans?category={category}"
 
@@ -467,7 +545,6 @@ async def check_punishment_via_html(steam_id: str, kind: str) -> bool:
         return False
 
     soup = BeautifulSoup(html, "html.parser")
-
     profile_link = soup.find("a", href=f"/profile/{steam_id}")
     if not profile_link:
         print(f"🔍 [{kind}] SteamID {steam_id} не найден на первой странице")
@@ -567,7 +644,7 @@ def is_user_blocked(discord_id: int) -> tuple:
 
 
 # ============================================================
-# ХЕЛПЕРЫ ФОРМАТИРОВАНИЯ
+# ХЕЛПЕРЫ
 # ============================================================
 def _fmt_timestamp(ts):
     if not ts:
@@ -870,7 +947,7 @@ async def sync_clan_role_by_id(guild: discord.Guild, member: discord.Member,
 
 
 # ============================================================
-# БАНЫ / МУТЫ - РОЛИ (обобщённый код)
+# БАНЫ / МУТЫ - РОЛИ
 # ============================================================
 PUNISHMENTS = {
     "ban": {"endpoint": "bans", "role_id": BANNED_ROLE_ID, "emoji": "🔨", "word": "Бан"},
@@ -948,7 +1025,7 @@ async def close_application_thread(thread: discord.Thread,
 
 
 # ============================================================
-# ГОЛОСА ПО ЗАЯВКАМ
+# ГОЛОСА
 # ============================================================
 def _get_votes(message_id: int) -> dict:
     return votes_store.read().get(str(message_id)) or {"accept": 0, "deny": 0, "voters": []}
@@ -1021,7 +1098,7 @@ async def _vote(interaction: discord.Interaction, kind: str):
 
 
 # ============================================================
-# ИНТЕРАКТИВНОЕ МЕНЮ ЗАЯВКИ
+# МЕНЮ ЗАЯВКИ
 # ============================================================
 class ApplicationManagement(discord.ui.View):
     def __init__(self):
@@ -1339,7 +1416,6 @@ class ClanView(discord.ui.View):
 # ============================================================
 # БОТ
 # ============================================================
-# Публичные команды — доступны всем без проверки модератора
 PUBLIC_COMMANDS = {"link", "unlink", "ping", "ai"}
 
 
@@ -1356,13 +1432,14 @@ class MyBot(commands.Bot):
             return True
         allowed = is_moderator(interaction.user.id, interaction.guild)
         if not allowed and not interaction.response.is_done():
-            await interaction.response.send_message("❌ У вас нет доступа к этой команде.",
-                                                    ephemeral=True)
+            await interaction.response.send_message(
+                "❌ У вас нет доступа к этой команде.", ephemeral=True)
         return allowed
 
     async def setup_hook(self):
         await api.start()
         await llm7.start()
+        await groq.start()
         guild = discord.Object(id=GUILD_ID)
         self.tree.copy_global_to(guild=guild)
         synced = await self.tree.sync(guild=guild)
@@ -1377,6 +1454,7 @@ class MyBot(commands.Bot):
     async def close(self):
         await api.close()
         await llm7.close()
+        await groq.close()
         await super().close()
 
 
@@ -1388,10 +1466,13 @@ async def on_app_command_error(interaction: discord.Interaction,
                                error: discord.app_commands.AppCommandError):
     if isinstance(error, discord.app_commands.CheckFailure):
         msg = "❌ У вас нет доступа к этой команде."
-        if not interaction.response.is_done():
-            await interaction.response.send_message(msg, ephemeral=True)
-        else:
-            await interaction.followup.send(msg, ephemeral=True)
+        try:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(msg, ephemeral=True)
+            else:
+                await interaction.followup.send(msg, ephemeral=True)
+        except Exception:
+            pass
         return
     print(f"⚠️ Ошибка команды {interaction.command}: {error}")
 
@@ -1399,6 +1480,23 @@ async def on_app_command_error(interaction: discord.Interaction,
 @bot.event
 async def on_ready():
     print(f"✅ Бот {bot.user} готов!")
+    print(f"🔑 LLM7_API_KEY: {'ЗАДАН' if LLM7_API_KEY and LLM7_API_KEY != 'unused' else 'unused'}")
+    print(f"🔑 GROQ_API_KEY: {'ЗАДАН' if GROQ_API_KEY else 'НЕ ЗАДАН (fallback отключён)'}")
+    asyncio.create_task(_warmup_llm7())
+
+
+async def _warmup_llm7():
+    await asyncio.sleep(5)
+    print("🔥 Прогрев LLM7...")
+    for model in ("fast", "default"):
+        try:
+            r = await llm7.chat("ping", system="Ответь одним словом: pong",
+                                model=model, max_tokens=10, timeout=40)
+            print(f"🔥 LLM7 [{model}] прогрет: {'OK' if r else 'FAIL'}")
+            if r:
+                break
+        except Exception as e:
+            print(f"⚠️ Прогрев LLM7 [{model}]: {e}")
 
 
 def admin_only(interaction: discord.Interaction) -> bool:
@@ -1414,7 +1512,7 @@ async def _admin_guard(interaction: discord.Interaction) -> bool:
 
 
 # ============================================================
-# КОМАНДЫ: ПРИВЯЗКА
+# КОМАНДЫ ПРИВЯЗКИ
 # ============================================================
 @bot.tree.command(name="link", description="Привязать свой Discord к SteamID")
 @app_commands.describe(steam_id="Твой SteamID64 (17 цифр)")
@@ -1496,7 +1594,7 @@ async def sync_all(interaction: discord.Interaction):
 
 
 # ============================================================
-# ПРОВЕРКА БАНОВ / МУТОВ - АВТОДОПОЛНЕНИЕ
+# АВТОДОПОЛНЕНИЕ + ПРОВЕРКА БАНОВ/МУТОВ
 # ============================================================
 async def linked_member_autocomplete(
     interaction: discord.Interaction,
@@ -1514,35 +1612,26 @@ async def linked_member_autocomplete(
         if search and search not in member.display_name.lower() and search not in steam_id:
             continue
         choices.append(
-            app_commands.Choice(
-                name=f"{member.display_name} | {steam_id}",
-                value=str(member.id),
-            )
-        )
+            app_commands.Choice(name=f"{member.display_name} | {steam_id}",
+                                value=str(member.id)))
         if len(choices) >= 25:
             break
     return choices
 
 
-async def _check_single_punishment(
-    interaction: discord.Interaction,
-    member: discord.Member,
-    kind: str,
-) -> None:
+async def _check_single_punishment(interaction: discord.Interaction,
+                                   member: discord.Member, kind: str) -> None:
     cfg = PUNISHMENTS[kind]
     role = interaction.guild.get_role(cfg["role_id"])
     if role is None:
-        await interaction.followup.send(
-            f"❌ Роль `{cfg['role_id']}` не найдена.", ephemeral=True
-        )
+        await interaction.followup.send(f"❌ Роль `{cfg['role_id']}` не найдена.",
+                                        ephemeral=True)
         return
 
     steam_id = links_store.read().get(str(member.id))
     if not steam_id:
         await interaction.followup.send(
-            f"❌ {member.mention} не привязан к SteamID. Сначала `/link`.",
-            ephemeral=True,
-        )
+            f"❌ {member.mention} не привязан к SteamID. Сначала `/link`.", ephemeral=True)
         return
 
     html_kind = "bans" if kind == "ban" else "mutes"
@@ -1553,8 +1642,7 @@ async def _check_single_punishment(
         status = "уже имеет роль" if has_role else "чист (активных нет)"
         await interaction.followup.send(
             f"ℹ️ **{member.display_name}** - {status}. Изменений не требуется.",
-            ephemeral=True,
-        )
+            ephemeral=True)
         return
 
     try:
@@ -1569,73 +1657,54 @@ async def _check_single_punishment(
             f"**{cfg['word']} - {member.display_name}**\n"
             f"SteamID: `{steam_id}`\n"
             f"Наказание активно: **{'да' if punished else 'нет'}**\n{result}",
-            ephemeral=True,
-        )
+            ephemeral=True)
         await log_to_applications(
             interaction.client,
             f"{cfg['emoji']} **{cfg['word']} {'выдан' if punished else 'снят'}**\n"
             f"👤 Игрок: {member.mention}\n"
             f"🎭 Роль: {role.mention}\n"
             f"🕒 {utc_stamp()} (UTC)\n"
-            f"👮 Проверил: {interaction.user.mention}",
-        )
+            f"👮 Проверил: {interaction.user.mention}")
     except discord.Forbidden:
         await interaction.followup.send(
-            f"❌ Нет прав для изменения ролей {member.mention}.", ephemeral=True
-        )
+            f"❌ Нет прав для изменения ролей {member.mention}.", ephemeral=True)
 
 
-@bot.tree.command(
-    name="check_bans",
-    description="Проверить активные баны выбранного игрока и выдать/снять роль",
-)
-@app_commands.describe(member="Игрок, которого нужно проверить (только привязанные)")
+@bot.tree.command(name="check_bans", description="Проверить активные баны игрока")
+@app_commands.describe(member="Игрок (только привязанные)")
 @app_commands.autocomplete(member=linked_member_autocomplete)
 async def check_bans(interaction: discord.Interaction, member: str):
     if not await _admin_guard(interaction):
         return
     await interaction.response.defer(ephemeral=True)
-
     try:
         member_id = int(member)
     except ValueError:
         await interaction.followup.send("❌ Некорректный игрок.", ephemeral=True)
         return
-
     target = interaction.guild.get_member(member_id)
     if target is None:
-        await interaction.followup.send(
-            "❌ Этот пользователь не найден на сервере.", ephemeral=True
-        )
+        await interaction.followup.send("❌ Пользователь не найден.", ephemeral=True)
         return
-
     await _check_single_punishment(interaction, target, "ban")
 
 
-@bot.tree.command(
-    name="check_mutes",
-    description="Проверить активные муты выбранного игрока и выдать/снять роль",
-)
-@app_commands.describe(member="Игрок, которого нужно проверить (только привязанные)")
+@bot.tree.command(name="check_mutes", description="Проверить активные муты игрока")
+@app_commands.describe(member="Игрок (только привязанные)")
 @app_commands.autocomplete(member=linked_member_autocomplete)
 async def check_mutes(interaction: discord.Interaction, member: str):
     if not await _admin_guard(interaction):
         return
     await interaction.response.defer(ephemeral=True)
-
     try:
         member_id = int(member)
     except ValueError:
         await interaction.followup.send("❌ Некорректный игрок.", ephemeral=True)
         return
-
     target = interaction.guild.get_member(member_id)
     if target is None:
-        await interaction.followup.send(
-            "❌ Этот пользователь не найден на сервере.", ephemeral=True
-        )
+        await interaction.followup.send("❌ Пользователь не найден.", ephemeral=True)
         return
-
     await _check_single_punishment(interaction, target, "mute")
 
 
@@ -1684,7 +1753,7 @@ async def link_all(interaction: discord.Interaction):
     await log_to_channel(interaction.client, text)
 
 
-@bot.tree.command(name="export_members", description="Выгрузить всех участников в mass_links.json")
+@bot.tree.command(name="export_members", description="Выгрузить участников в mass_links.json")
 async def export_members(interaction: discord.Interaction):
     if not await _admin_guard(interaction):
         return
@@ -1698,23 +1767,22 @@ async def export_members(interaction: discord.Interaction):
         await interaction.followup.send(f"❌ Ошибка: {e}", ephemeral=True)
         return
     await interaction.followup.send(
-        f"✅ Выгружено участников: **{len(members)}** (ботов: {bots_count})\nФайл: `mass_links.json`.",
+        f"✅ Выгружено: **{len(members)}** (ботов: {bots_count}).",
         ephemeral=True)
-    await log_to_channel(interaction.client, f"📤 /export_members - {len(members)} участников.")
+    await log_to_channel(interaction.client, f"📤 /export_members - {len(members)}.")
 
 
 # ============================================================
-# КОМАНДЫ БАЗЫ ИГРОКОВ
+# БАЗА ИГРОКОВ
 # ============================================================
-@bot.tree.command(name="player_info", description="Показать полную базу данных по игроку")
+@bot.tree.command(name="player_info", description="Показать базу данных по игроку")
 @app_commands.describe(member="Участник Discord")
 async def player_info(interaction: discord.Interaction, member: discord.Member):
     await interaction.response.defer(ephemeral=True)
     try:
         profile = await build_player_profile(interaction.guild, member.id)
         if not profile.get("steamid64"):
-            await interaction.followup.send("❌ У игрока нет SteamID. Сначала `/link`.",
-                                            ephemeral=True)
+            await interaction.followup.send("❌ У игрока нет SteamID.", ephemeral=True)
             return
 
         def _merge(db):
@@ -1760,7 +1828,7 @@ async def player_note(interaction: discord.Interaction, member: discord.Member, 
     await send_player_report(interaction.client, profile)
 
 
-@bot.tree.command(name="player_list", description="Показать всю базу игроков")
+@bot.tree.command(name="player_list", description="Показать базу игроков")
 async def player_list(interaction: discord.Interaction):
     if not await _admin_guard(interaction):
         return
@@ -1791,14 +1859,14 @@ async def player_list(interaction: discord.Interaction):
     await interaction.response.send_message(text[:1900], ephemeral=True)
 
 
-@bot.tree.command(name="lookup", description="Показать инфо о Discord-игроке (привязка, ник, клан)")
+@bot.tree.command(name="lookup", description="Инфо о Discord-игроке")
 @app_commands.describe(member="Участник Discord")
 async def lookup(interaction: discord.Interaction, member: discord.Member):
     await interaction.response.defer(ephemeral=True)
     steam_id = links_store.read().get(str(member.id))
     if not steam_id:
         await interaction.followup.send(
-            f"❌ {member.mention} не привязан к SteamID. Сначала `/link`.", ephemeral=True)
+            f"❌ {member.mention} не привязан. Сначала `/link`.", ephemeral=True)
         return
     user = await api.cs2red_user(steam_id)
     nick = user.get("nick", "-") if user else "-"
@@ -1807,16 +1875,14 @@ async def lookup(interaction: discord.Interaction, member: discord.Member):
     clan_text = f" (клан: {clan['clan_name']})" if clan else " (без клана)"
     await interaction.followup.send(
         f"🎮 **{nick}**{clan_text}\n👤 Discord: {member.mention} (`{member.id}`)\n"
-        f"SteamID64: `{steam_id}`\nРоль: **{role_display_name(role_id) if role_id else '-'}** "
-        f"(roleId={role_id})", ephemeral=True)
-    await log_to_channel(interaction.client,
-                         f"🔎 /lookup - {interaction.user.display_name} посмотрел {member.display_name}")
+        f"SteamID64: `{steam_id}`\nРоль: **{role_display_name(role_id) if role_id else '-'}**",
+        ephemeral=True)
 
 
 # ============================================================
-# /ping — проверка живой бот или нет
+# /ping
 # ============================================================
-@bot.tree.command(name="ping", description="Проверить, жив ли бот, и узнать аптайм/задержку")
+@bot.tree.command(name="ping", description="Проверить, жив ли бот")
 async def ping(interaction: discord.Interaction):
     before = time.perf_counter()
     await interaction.response.defer(ephemeral=False)
@@ -1828,7 +1894,6 @@ async def ping(interaction: discord.Interaction):
     days, rem = divmod(uptime_seconds, 86400)
     hours, rem = divmod(rem, 3600)
     minutes, seconds = divmod(rem, 60)
-
     if uptime_seconds < 60:
         uptime_str = f"{uptime_seconds} сек."
     elif uptime_seconds < 3600:
@@ -1838,12 +1903,9 @@ async def ping(interaction: discord.Interaction):
     else:
         uptime_str = f"{days} д. {hours} ч. {minutes} мин."
 
-    if ws_latency_ms < 150:
-        status = "🟢 Отличная связь"
-    elif ws_latency_ms < 400:
-        status = "🟡 Нормальная связь"
-    else:
-        status = "🟠 Высокая задержка"
+    status = ("🟢 Отличная связь" if ws_latency_ms < 150 else
+              "🟡 Нормальная связь" if ws_latency_ms < 400 else
+              "🟠 Высокая задержка")
 
     embed = discord.Embed(title="🏓 Pong!", color=0x2B2D31, timestamp=now_utc())
     embed.add_field(name="Статус", value="✅ Бот жив и работает", inline=False)
@@ -1851,84 +1913,108 @@ async def ping(interaction: discord.Interaction):
     embed.add_field(name="📡 WS-задержка", value=f"`{ws_latency_ms:.0f} мс`", inline=True)
     embed.add_field(name="🌐 HTTP-задержка", value=f"`{api_latency_ms:.0f} мс`", inline=True)
     embed.add_field(name="Связь", value=status, inline=False)
-    embed.add_field(
-        name="Система",
-        value=f"Python {platform.python_version()} • discord.py {discord.__version__}",
-        inline=False,
-    )
+    embed.add_field(name="Система",
+                    value=f"Python {platform.python_version()} • discord.py {discord.__version__}",
+                    inline=False)
     embed.set_footer(text=f"Quantum • {utc_stamp()} (UTC)")
     if bot.user:
         embed.set_thumbnail(url=bot.user.display_avatar.url)
-
     await interaction.followup.send(embed=embed)
 
 
 # ============================================================
-# /ai — обращение к ИИ (LLM7.io) в любом канале
+# /ai — ИИ в любом канале (defer первой строкой!)
 # ============================================================
 AI_CHAT_SYSTEM_PROMPT = (
     "Ты — дружелюбный и полезный ИИ-помощник Discord-сервера клана "
     f"{CLAN_NAME}. Отвечай кратко, по делу, на русском языке. "
     "Если пользователь пишет на другом языке — отвечай на его языке. "
-    "Не выдумывай факты, если не уверен — так и скажи. "
-    "Можно использовать markdown (жирный, списки, код)."
+    "Не выдумывай факты. Можно использовать markdown."
 )
 
 
-@bot.tree.command(name="ai", description="Спросить у ИИ что угодно (работает в любом канале)")
+@bot.tree.command(name="ai", description="Спросить у ИИ (работает в любом канале)")
 @app_commands.describe(
-    prompt="Ваш вопрос или запрос к ИИ",
-    reset="Сбросить историю диалога в этом канале (по умолчанию False)",
+    prompt="Ваш вопрос или запрос",
+    reset="Сбросить историю диалога в этом канале",
+    long="Длинный ответ (медленнее, подробнее)",
 )
-async def ai(interaction: discord.Interaction, prompt: str, reset: bool = False):
-    # Проверяем, что бот вообще может писать в этот канал
+async def ai(interaction: discord.Interaction, prompt: str,
+             reset: bool = False, long: bool = False):
+    # ⚠️ ГЛАВНОЕ: defer ДОЛЖЕН быть первой строкой, иначе 10062!
+    await interaction.response.defer(thinking=True)
+
+    channel_id = interaction.channel_id
+
+    # Проверки — после defer
     me = interaction.guild.me if interaction.guild else None
     if interaction.channel and me:
         perms = interaction.channel.permissions_for(me)
         if not perms.send_messages:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ У бота нет права писать в этом канале.", ephemeral=True)
             return
 
-    # Сбрасываем историю при необходимости
     if reset:
-        ai_chat_history.pop(interaction.channel_id, None)
+        ai_chat_history.pop(channel_id, None)
 
-    await interaction.response.defer(thinking=True)
-
-    channel_id = interaction.channel_id
     history_snapshot = list(ai_chat_history.get(channel_id, []))
 
-    # Лок на канал, чтобы параллельные запросы не портили историю
+    if long:
+        max_tokens = 1200
+        timeout = 60
+        model = "default"
+    else:
+        max_tokens = AI_CHAT_MAX_TOKENS
+        timeout = AI_CHAT_TIMEOUT
+        model = AI_CHAT_MODEL
+
+    thinking_msg = None
+    try:
+        thinking_msg = await interaction.followup.send("⏳ Думаю…")
+    except Exception:
+        pass
+
     async with ai_chat_locks[channel_id]:
-        answer = await llm7.chat(
+        answer, source = await ai_chat_with_fallback(
             prompt=prompt,
             system=AI_CHAT_SYSTEM_PROMPT,
             history=history_snapshot,
-            max_tokens=AI_CHAT_MAX_TOKENS,
-            temperature=0.7,
+            model=model,
+            max_tokens=max_tokens,
+            temperature=0.6,
+            timeout=timeout,
         )
 
         if answer is None:
+            if thinking_msg:
+                try:
+                    await thinking_msg.delete()
+                except Exception:
+                    pass
             await interaction.followup.send(
-                "⚠️ ИИ временно недоступен (rate-limit или сеть). Попробуйте позже.",
-                ephemeral=False,
+                f"⚠️ ИИ не ответил за {timeout} сек. "
+                f"Попробуйте позже или используйте `/ai long: True`."
             )
             return
 
-        # Сохраняем в историю канала
         hist = ai_chat_history[channel_id]
         hist.append({"role": "user", "content": prompt})
         hist.append({"role": "assistant", "content": answer})
 
-    # Разбиваем длинный ответ на части по 1900 символов
-    chunks = [answer[i:i + 1900] for i in range(0, len(answer), 1900)] or ["(пустой ответ)"]
+    if thinking_msg:
+        try:
+            await thinking_msg.delete()
+        except Exception:
+            pass
 
-    # Заголовок от пользователя (в первом сообщении)
-    header = f"**{interaction.user.display_name} → /ai**\n"
+    chunks = [answer[i:i + 1900] for i in range(0, len(answer), 1900)] or ["(пустой ответ)"]
+    header = f"**{interaction.user.display_name} → /ai**"
+    if source == "groq":
+        header += " _(fallback: Groq)_"
+    header += "\n"
     first = header + chunks[0]
     if len(first) > 2000:
-        # если заголовок + кусок не влезают — режем chunk
         first = first[:1990] + "…"
 
     try:
@@ -1936,8 +2022,7 @@ async def ai(interaction: discord.Interaction, prompt: str, reset: bool = False)
         for extra in chunks[1:]:
             await interaction.channel.send(extra)
     except discord.Forbidden:
-        await interaction.followup.send(
-            "❌ Не удалось отправить ответ (нет прав).", ephemeral=True)
+        await interaction.followup.send("❌ Нет прав для отправки ответа.", ephemeral=True)
     except Exception as e:
         print(f"⚠️ /ai: ошибка отправки: {e}")
 
@@ -1945,13 +2030,12 @@ async def ai(interaction: discord.Interaction, prompt: str, reset: bool = False)
 # ============================================================
 # МОДЕРАТОРЫ
 # ============================================================
-@bot.tree.command(name="moders", description="Показать всех, у кого есть доступ к командам бота")
+@bot.tree.command(name="moders", description="Список модераторов бота")
 async def moders(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     mods = moders_store.read()
     if not mods:
-        await interaction.followup.send(
-            "ℹ️ Модераторы не настроены (кроме администраторов Discord).", ephemeral=True)
+        await interaction.followup.send("ℹ️ Модераторы не настроены.", ephemeral=True)
         return
     lines = []
     for uid in mods:
@@ -1964,12 +2048,11 @@ async def moders(interaction: discord.Interaction):
         f"🛠 **Модераторы ({len(mods)}):**\n" + "\n".join(lines), ephemeral=True)
 
 
-@bot.tree.command(name="give", description="Выдать доступ к командам бота (только админ)")
+@bot.tree.command(name="give", description="Выдать доступ к командам бота")
 @app_commands.describe(user="Кому выдать доступ")
 async def give_moders(interaction: discord.Interaction, user: discord.Member):
     if not admin_only(interaction):
-        await interaction.response.send_message(
-            "❌ Только администратор может выдавать доступ.", ephemeral=True)
+        await interaction.response.send_message("❌ Только админ.", ephemeral=True)
         return
 
     def _add(d):
@@ -1979,21 +2062,17 @@ async def give_moders(interaction: discord.Interaction, user: discord.Member):
         return False
     added = await moders_store.update(_add)
     if added:
-        await interaction.response.send_message(
-            f"✅ **{user.mention}** получил доступ к командам бота.")
-        await log_to_channel(interaction.client,
-                             f"🛠 {interaction.user.mention} выдал доступ {user.mention}")
+        await interaction.response.send_message(f"✅ {user.mention} получил доступ.")
     else:
         await interaction.response.send_message(f"ℹ️ {user.mention} уже имеет доступ.",
                                                 ephemeral=True)
 
 
-@bot.tree.command(name="take", description="Забрать доступ к командам бота (только админ)")
-@app_commands.describe(user="У кого забрать доступ")
+@bot.tree.command(name="take", description="Забрать доступ к командам бота")
+@app_commands.describe(user="У кого забрать")
 async def take_moders(interaction: discord.Interaction, user: discord.Member):
     if not admin_only(interaction):
-        await interaction.response.send_message(
-            "❌ Только администратор может забирать доступ.", ephemeral=True)
+        await interaction.response.send_message("❌ Только админ.", ephemeral=True)
         return
 
     def _rem(d):
@@ -2003,17 +2082,14 @@ async def take_moders(interaction: discord.Interaction, user: discord.Member):
         return False
     removed = await moders_store.update(_rem)
     if removed:
-        await interaction.response.send_message(
-            f"❌ **{user.mention}** лишён доступа к командам бота.")
-        await log_to_channel(interaction.client,
-                             f"🛠 {interaction.user.mention} забрал доступ у {user.mention}")
+        await interaction.response.send_message(f"❌ {user.mention} лишён доступа.")
     else:
-        await interaction.response.send_message(
-            f"ℹ️ {user.mention} и так не имеет доступа (из списка).", ephemeral=True)
+        await interaction.response.send_message(f"ℹ️ {user.mention} и так без доступа.",
+                                                ephemeral=True)
 
 
 # ============================================================
-# КОМАНДЫ АКТИВНОСТИ
+# АКТИВНОСТЬ
 # ============================================================
 def _get_steam_of(member: discord.Member) -> str:
     return links_store.read().get(str(member.id))
@@ -2022,28 +2098,24 @@ def _get_steam_of(member: discord.Member) -> str:
 async def _activity_guard(interaction: discord.Interaction,
                           member: discord.Member, need_admin=True):
     if need_admin and not admin_only(interaction):
-        await interaction.response.send_message("❌ Нужны права администратора.",
-                                                ephemeral=True)
+        await interaction.response.send_message("❌ Нужны права админа.", ephemeral=True)
         return None
     steam_id = _get_steam_of(member)
     if not steam_id:
-        await interaction.response.send_message("❌ У игрока нет SteamID. Сначала `/link`.",
-                                                ephemeral=True)
+        await interaction.response.send_message("❌ У игрока нет SteamID.", ephemeral=True)
         return None
     return steam_id
 
 
-@bot.tree.command(name="activity_set", description="Установить часы активности игрока")
-@app_commands.describe(member="Участник Discord", server="Название сервера",
-                       hours="Количество часов")
+@bot.tree.command(name="activity_set", description="Установить часы активности")
+@app_commands.describe(member="Участник", server="Сервер", hours="Часы")
 async def activity_set(interaction: discord.Interaction, member: discord.Member,
                        server: str, hours: float):
     steam_id = await _activity_guard(interaction, member)
     if not steam_id:
         return
     if hours < 0:
-        await interaction.response.send_message("❌ Часы не могут быть отрицательными.",
-                                                ephemeral=True)
+        await interaction.response.send_message("❌ Часы < 0.", ephemeral=True)
         return
 
     def _set(db):
@@ -2060,13 +2132,13 @@ async def activity_set(interaction: discord.Interaction, member: discord.Member,
                    if isinstance(v, (int, float)))
     total = await players_store.update(_set)
     await interaction.response.send_message(
-        f"✅ **{member.display_name}** - сервер `{server.upper()}`: **{hours} ч.**\n"
-        f"📊 Всего за неделю: {build_activity_bar(total, ACTIVITY_GOAL_HOURS)}",
+        f"✅ **{member.display_name}** - `{server.upper()}`: **{hours} ч.**\n"
+        f"📊 Всего: {build_activity_bar(total, ACTIVITY_GOAL_HOURS)}",
         ephemeral=True)
 
 
 @bot.tree.command(name="activity_clear", description="Сбросить активность игрока")
-@app_commands.describe(member="Участник Discord")
+@app_commands.describe(member="Участник")
 async def activity_clear(interaction: discord.Interaction, member: discord.Member):
     steam_id = await _activity_guard(interaction, member)
     if not steam_id:
@@ -2078,12 +2150,12 @@ async def activity_clear(interaction: discord.Interaction, member: discord.Membe
         db[steam_id] = profile
         return None
     await players_store.update(_clear)
-    await interaction.response.send_message(f"✅ Активность **{member.display_name}** сброшена.",
-                                            ephemeral=True)
+    await interaction.response.send_message(
+        f"✅ Активность {member.display_name} сброшена.", ephemeral=True)
 
 
 @bot.tree.command(name="activity_show", description="Показать активность игрока")
-@app_commands.describe(member="Участник Discord")
+@app_commands.describe(member="Участник")
 async def activity_show(interaction: discord.Interaction, member: discord.Member):
     steam_id = await _activity_guard(interaction, member, need_admin=False)
     if not steam_id:
@@ -2091,7 +2163,7 @@ async def activity_show(interaction: discord.Interaction, member: discord.Member
     activity = players_store.read().get(steam_id, {}).get("activity", {})
     if not activity:
         await interaction.response.send_message(
-            f"ℹ️ Активность **{member.display_name}** пока не введена.", ephemeral=True)
+            f"ℹ️ Активность {member.display_name} не введена.", ephemeral=True)
         return
     lines, total = [], 0.0
     for srv, hours in sorted(activity.items()):
@@ -2101,12 +2173,12 @@ async def activity_show(interaction: discord.Interaction, member: discord.Member
             continue
         total += h
         lines.append(f"• `{srv}`: **{h} ч.**")
-    text = (f"📊 **Активность {member.display_name} за неделю:**\n\n" + "\n".join(lines)
+    text = (f"📊 **Активность {member.display_name}:**\n\n" + "\n".join(lines)
             + f"\n\n**Итого:** {build_activity_bar(total, ACTIVITY_GOAL_HOURS)}")
     await interaction.response.send_message(text, ephemeral=True)
 
 
-@bot.tree.command(name="activity_all", description="Показать активность всех игроков с ролью")
+@bot.tree.command(name="activity_all", description="Активность всех с ролью")
 async def activity_all(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=False)
     role = interaction.guild.get_role(ACTIVITY_ROLE_ID)
@@ -2136,10 +2208,9 @@ async def activity_all(interaction: discord.Interaction):
     data.sort(key=lambda x: x[1], reverse=True)
     lines = [f"{build_activity_bar(h, ACTIVITY_GOAL_HOURS)} - {m.mention}" for m, h in data]
     completed = sum(1 for _, h in data if h >= ACTIVITY_GOAL_HOURS)
-    header = f"📊 **Активность всех игроков с ролью {role.mention}**\n\n"
-    footer = (f"\n\n📈 **Всего:** {len(data)} игроков\n"
-              f"✅ **Выполнили цель ({ACTIVITY_GOAL_HOURS}+ ч.):** {completed}\n"
-              f"⚠️ **Малоактивных (< {ACTIVITY_GOAL_HOURS} ч.):** {len(data) - completed}")
+    header = f"📊 **Активность роли {role.mention}**\n\n"
+    footer = (f"\n\n📈 Всего: {len(data)}\n✅ Выполнили: {completed}\n"
+              f"⚠️ Малоактивных: {len(data) - completed}")
     body = "\n".join(lines)
     if len(header + body + footer) <= 2000:
         await interaction.followup.send(header + body + footer)
@@ -2252,7 +2323,6 @@ async def auto_sync():
     links = links_store.read()
     guild = bot.get_guild(GUILD_ID)
     if not links or guild is None:
-        print("   Нет привязанных.")
         return
     results = []
     for discord_id, steam_id in links.items():
@@ -2321,16 +2391,8 @@ async def _align_to_half_hour(minutes: int):
         await asyncio.sleep(wait)
 
 
-async def before_ban_check():
-    await _align_to_half_hour(0)
-
-
-async def before_mute_check():
-    await _align_to_half_hour(30)
-
-
-ban_check.before_loop(before_ban_check)
-mute_check.before_loop(before_mute_check)
+ban_check.before_loop(lambda: _align_to_half_hour(0))
+mute_check.before_loop(lambda: _align_to_half_hour(30))
 
 
 @auto_sync.before_loop
@@ -2339,7 +2401,7 @@ async def before_auto_sync():
 
 
 # ============================================================
-# ИИ-АНАЛИЗ СКРИПТА / ПОВЕДЕНИЯ БОТА (раз в 60 минут)
+# ИИ-АНАЛИЗ РАЗ В ЧАС
 # ============================================================
 AI_SYSTEM_PROMPT = (
     "Ты — технический аналитик Discord-бота. Тебе дают метрики работы "
@@ -2350,9 +2412,10 @@ AI_SYSTEM_PROMPT = (
     "по пунктам, не более 900 токенов."
 )
 
+_FIRST_AI_REPORT_DONE = False
+
 
 def _collect_runtime_stats() -> dict:
-    """Собирает метрики текущего состояния бота."""
     links = links_store.read()
     players = players_store.read()
     bans = bans_store.read()
@@ -2431,12 +2494,12 @@ def _build_ai_prompt(stats: dict, prev_report: str | None = None) -> str:
         f"Участников на сервере: {stats['guild_members']}",
         f"Привязанных Discord↔Steam: {stats['linked_users']}",
         f"Игроков в БД: {stats['players_in_db']} (с активностью: {stats['active_players']})",
-        f"Всего учтённых часов активности: {stats['total_tracked_hours']}",
-        f"Модераторов в списке доступа: {stats['moderators_count']}",
-        f"Записей голосований: {stats['votes_records']}",
-        f"Перманентных запретов: {stats['perm_bans']}",
-        f"Активных временных запретов: {stats['active_temp_bans']}",
-        f"Каналов с активной историей /ai: {stats['ai_channels_with_history']}",
+        f"Всего учтённых часов: {stats['total_tracked_hours']}",
+        f"Модераторов: {stats['moderators_count']}",
+        f"Голосований: {stats['votes_records']}",
+        f"Перм. запретов: {stats['perm_bans']}",
+        f"Активных временных: {stats['active_temp_bans']}",
+        f"Каналов с историей /ai: {stats['ai_channels_with_history']}",
         "",
         "=== ФОНОВЫЕ ЗАДАЧИ ===",
     ]
@@ -2450,25 +2513,18 @@ def _build_ai_prompt(stats: dict, prev_report: str | None = None) -> str:
         f"- ai_script_analysis: каждые {stats['ai_interval_min']} мин",
         "",
         "=== ЗАДАНИЕ ===",
-        "1) Оцени «роботизированность» поведения бота по шкале 0-10 "
-        "(0 = полностью ручное, 10 = максимально автоматизировано). "
-        "Объясни оценку 2-3 пунктами.",
-        "2) Укажи 3 главных риска (например: rate-limit HTML-парсинга, "
-        "дублирование задач, пропуски проверок).",
-        "3) Дай 3-4 коротких практических улучшения.",
-        "4) Сделай итоговый вывод в 1-2 строки.",
+        "1) Оцени «роботизированность» бота по шкале 0-10. Объясни 2-3 пунктами.",
+        "2) Укажи 3 главных риска.",
+        "3) Дай 3-4 коротких улучшения.",
+        "4) Итог в 1-2 строки.",
     ]
     if prev_report:
-        lines += [
-            "",
-            "=== ПРЕДЫДУЩИЙ ОТЧЁТ (для сравнения) ===",
-            prev_report[:1500],
-        ]
+        lines += ["", "=== ПРЕДЫДУЩИЙ ОТЧЁТ ===", prev_report[:1500]]
     return "\n".join(lines)
 
 
 async def _run_ai_analysis_once() -> str | None:
-    """Один цикл анализа + отправка отчёта в канал."""
+    global _FIRST_AI_REPORT_DONE
     stats = _collect_runtime_stats()
     prev = None
     try:
@@ -2479,8 +2535,15 @@ async def _run_ai_analysis_once() -> str | None:
         prev = None
 
     prompt = _build_ai_prompt(stats, prev)
-    answer = await llm7.chat(prompt, system=AI_SYSTEM_PROMPT,
-                             max_tokens=900, temperature=0.4)
+    answer, source = await ai_chat_with_fallback(
+        prompt=prompt, system=AI_SYSTEM_PROMPT, history=None,
+        model="default", max_tokens=700, temperature=0.4, timeout=45)
+
+    if answer is None and not _FIRST_AI_REPORT_DONE:
+        print("🤖 Первый ИИ-анализ: LLM7/Groq недоступны, отчёт пропущен.")
+        _FIRST_AI_REPORT_DONE = True
+        return None
+    _FIRST_AI_REPORT_DONE = True
 
     channel = bot.get_channel(AI_REPORT_CHANNEL_ID)
     if channel is None:
@@ -2490,19 +2553,13 @@ async def _run_ai_analysis_once() -> str | None:
     if answer is None:
         embed = discord.Embed(
             title="🤖 ИИ-анализ недоступен",
-            description=(
-                "Не удалось получить ответ от LLM7.io. "
-                "Ниже — сырые метрики для ручной проверки."
-            ),
-            color=0xED4245,
-            timestamp=now_utc(),
-        )
+            description="Ни LLM7, ни Groq не ответили. Сырые метрики ниже.",
+            color=0xED4245, timestamp=now_utc())
     else:
-        embed = discord.Embed(
-            title="🤖 ИИ-анализ работы бота (Quantum)",
-            color=0x5865F2,
-            timestamp=now_utc(),
-        )
+        title = "🤖 ИИ-анализ работы бота (Quantum)"
+        if source == "groq":
+            title += " _(fallback: Groq)_"
+        embed = discord.Embed(title=title, color=0x5865F2, timestamp=now_utc())
         embed.description = answer[:4000]
 
     uptime = stats["uptime_sec"]
@@ -2536,9 +2593,8 @@ async def _run_ai_analysis_once() -> str | None:
     if answer:
         try:
             data_path("ai_last_report.txt").write_text(answer, encoding="utf-8")
-        except Exception as e:
-            print(f"⚠️ Не удалось сохранить последний ИИ-отчёт: {e}")
-
+        except Exception:
+            pass
     return answer
 
 
@@ -2554,7 +2610,7 @@ async def ai_script_analysis():
 @ai_script_analysis.before_loop
 async def before_ai_script_analysis():
     await bot.wait_until_ready()
-    await asyncio.sleep(30)
+    await asyncio.sleep(180)
 
 
 @ai_script_analysis.error
@@ -2562,13 +2618,12 @@ async def ai_script_analysis_error(error):
     print(f"⚠️ ai_script_analysis ошибка: {error}")
 
 
-@bot.tree.command(name="ai_report", description="Запустить ИИ-анализ работы бота вручную")
+@bot.tree.command(name="ai_report", description="Запустить ИИ-анализ бота вручную")
 async def ai_report(interaction: discord.Interaction):
     if not await _admin_guard(interaction):
         return
     await interaction.response.defer(ephemeral=True)
-    await interaction.followup.send("🤖 Запускаю анализ, отчёт придёт в канал мониторинга.",
-                                    ephemeral=True)
+    await interaction.followup.send("🤖 Запускаю анализ…", ephemeral=True)
     asyncio.create_task(_run_ai_analysis_once())
 
 
