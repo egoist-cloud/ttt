@@ -1923,7 +1923,7 @@ async def ping(interaction: discord.Interaction):
 
 
 # ============================================================
-# /ai — ИИ в любом канале (defer первой строкой!)
+# /ai
 # ============================================================
 AI_CHAT_SYSTEM_PROMPT = (
     "Ты — дружелюбный и полезный ИИ-помощник Discord-сервера клана "
@@ -1941,12 +1941,11 @@ AI_CHAT_SYSTEM_PROMPT = (
 )
 async def ai(interaction: discord.Interaction, prompt: str,
              reset: bool = False, long: bool = False):
-    # ⚠️ ГЛАВНОЕ: defer ДОЛЖЕН быть первой строкой, иначе 10062!
+    # ⚠️ defer ДОЛЖЕН быть первой строкой, иначе 10062
     await interaction.response.defer(thinking=True)
 
     channel_id = interaction.channel_id
 
-    # Проверки — после defer
     me = interaction.guild.me if interaction.guild else None
     if interaction.channel and me:
         perms = interaction.channel.permissions_for(me)
@@ -2391,8 +2390,16 @@ async def _align_to_half_hour(minutes: int):
         await asyncio.sleep(wait)
 
 
-ban_check.before_loop(lambda: _align_to_half_hour(0))
-mute_check.before_loop(lambda: _align_to_half_hour(30))
+async def before_ban_check():
+    await _align_to_half_hour(0)
+
+
+async def before_mute_check():
+    await _align_to_half_hour(30)
+
+
+ban_check.before_loop(before_ban_check)
+mute_check.before_loop(before_mute_check)
 
 
 @auto_sync.before_loop
