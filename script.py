@@ -9,6 +9,7 @@ Quantum — бот клана (оптимизированная версия)
 - /link не даёт привязать один SteamID к нескольким Discord
 - last_seen трекера активности переживает перезапуск
 + HTTP-сервер для прохождения проверки работоспособности на Render
++ /check_bans и /check_mutes теперь проверяют только выбранного игрока (автодополнение)
 """
 import os
 import re
@@ -1410,32 +1411,155 @@ async def sync_all(interaction: discord.Interaction):
     await log_to_channel(interaction.client, text)
 
 
-@bot.tree.command(name="check_bans", description="Проверить баны и выдать/снять роль")
-async def check_bans(interaction: discord.Interaction):
+# ============================================================
+# ПРОВЕРКА БАНОВ / МУТОВ — ВЫБОР ИГРОКА ЧЕРЕЗ АВТОДОПОЛНЕНИЕ
+# ============================================================
+async def linked_member_autocomplete(
+    interaction: discord.Interaction,
+    current: str,
+) -> list[app_commands.Choice[str]]:
+    """
+    Автодополнение: показывает только тех участников сервера,
+    которые привязаны к SteamID через /link.
+    """
+    links = links_store.read()
+    if not links:
+        return []
+    choices = []
+    for discord_id, steam_id in links.items():
+        member = interaction.guild.get_member(int(discord_id))
+        if member is None:
+            continue
+        # фильтр по введённому тексту (по имени или SteamID)
+        search = current.lower()
+        if search and search not in member.display_name.lower() and search not in steam_id:
+            continue
+        choices.append(
+            app_commands.Choice(
+                name=f"{member.display_name} | {steam_id}",
+                value=str(member.id),
+            )
+        )
+        if len(choices) >= 25:  # лимит Discord — 25 вариантов
+            break
+    return choices
+
+
+async def _check_single_punishment(
+    interaction: discord.Interaction,
+    member: discord.Member,
+    kind: str,
+) -> None:
+    """
+    Проверяет ОДНОГО игрока на баны или муты и выдаёт/снимает роль.
+    kind: 'ban' или 'mute'
+    """
+    cfg = PUNISHMENTS[kind]
+    role = interaction.guild.get_role(cfg["role_id"])
+    if role is None:
+        await interaction.followup.send(
+            f"❌ Роль `{cfg['role_id']}` не найдена.", ephemeral=True
+        )
+        return
+
+    steam_id = links_store.read().get(str(member.id))
+    if not steam_id:
+        await interaction.followup.send(
+            f"❌ {member.mention} не привязан к SteamID. Сначала `/link`.",
+            ephemeral=True,
+        )
+        return
+
+    punished = bool(await api.active_punishments(steam_id, cfg["endpoint"]))
+    has_role = role in member.roles
+
+    if punished == has_role:
+        status = "уже имеет роль" if has_role else "чист"
+        await interaction.followup.send(
+            f"ℹ️ **{member.display_name}** — {status}. Изменений не требуется.",
+            ephemeral=True,
+        )
+        return
+
+    try:
+        if punished:
+            await member.add_roles(role, reason=f"{cfg['word']} cs2red.ru")
+            result = f"{cfg['emoji']} Выдана роль «{role.name}»: {member.mention}"
+        else:
+            await member.remove_roles(role, reason=f"Снятие {cfg['word']} cs2red.ru")
+            result = f"✅ Снята роль «{role.name}»: {member.mention}"
+
+        await interaction.followup.send(
+            f"**{cfg['word']} — {member.display_name}**\n"
+            f"SteamID: `{steam_id}`\n{result}",
+            ephemeral=True,
+        )
+        await log_to_applications(
+            interaction.client,
+            f"{cfg['emoji']} **{cfg['word']} {'выдан' if punished else 'снят'}**\n"
+            f"👤 Игрок: {member.mention}\n"
+            f"🎭 Роль: {role.mention}\n"
+            f"🕒 {utc_stamp()} (UTC)\n"
+            f"👮 Проверил: {interaction.user.mention}",
+        )
+    except discord.Forbidden:
+        await interaction.followup.send(
+            f"❌ Нет прав для изменения ролей {member.mention}.", ephemeral=True
+        )
+
+
+@bot.tree.command(
+    name="check_bans",
+    description="Проверить баны выбранного игрока и выдать/снять роль",
+)
+@app_commands.describe(member="Игрок, которого нужно проверить (только привязанные)")
+@app_commands.autocomplete(member=linked_member_autocomplete)
+async def check_bans(interaction: discord.Interaction, member: str):
     if not await _admin_guard(interaction):
         return
     await interaction.response.defer(ephemeral=True)
-    actions = await check_punishment_roles(interaction.client, interaction.guild, "ban")
-    if not actions:
-        await interaction.followup.send("✅ Изменений нет.", ephemeral=True)
+
+    try:
+        member_id = int(member)
+    except ValueError:
+        await interaction.followup.send("❌ Некорректный игрок.", ephemeral=True)
         return
-    text = "🔨 **Проверка банов:**\n" + "\n".join(actions)
-    await interaction.followup.send(text[:1900], ephemeral=True)
-    await log_to_channel(interaction.client, text)
+
+    target = interaction.guild.get_member(member_id)
+    if target is None:
+        await interaction.followup.send(
+            "❌ Этот пользователь не найден на сервере.", ephemeral=True
+        )
+        return
+
+    await _check_single_punishment(interaction, target, "ban")
 
 
-@bot.tree.command(name="check_mutes", description="Проверить муты и выдать/снять роль")
-async def check_mutes(interaction: discord.Interaction):
+@bot.tree.command(
+    name="check_mutes",
+    description="Проверить муты выбранного игрока и выдать/снять роль",
+)
+@app_commands.describe(member="Игрок, которого нужно проверить (только привязанные)")
+@app_commands.autocomplete(member=linked_member_autocomplete)
+async def check_mutes(interaction: discord.Interaction, member: str):
     if not await _admin_guard(interaction):
         return
     await interaction.response.defer(ephemeral=True)
-    actions = await check_punishment_roles(interaction.client, interaction.guild, "mute")
-    if not actions:
-        await interaction.followup.send("✅ Изменений нет.", ephemeral=True)
+
+    try:
+        member_id = int(member)
+    except ValueError:
+        await interaction.followup.send("❌ Некорректный игрок.", ephemeral=True)
         return
-    text = "🔇 **Проверка мутов:**\n" + "\n".join(actions)
-    await interaction.followup.send(text[:1900], ephemeral=True)
-    await log_to_channel(interaction.client, text)
+
+    target = interaction.guild.get_member(member_id)
+    if target is None:
+        await interaction.followup.send(
+            "❌ Этот пользователь не найден на сервере.", ephemeral=True
+        )
+        return
+
+    await _check_single_punishment(interaction, target, "mute")
 
 
 @bot.tree.command(name="link_all", description="Массово привязать из mass_links.json")
