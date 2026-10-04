@@ -1474,7 +1474,8 @@ async def linked_member_autocomplete(
             )
         )
         if len(choices) >= 25:
-            break    return choices
+            break
+    return choices
 
 
 async def _check_single_punishment(
