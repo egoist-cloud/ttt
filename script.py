@@ -1,8 +1,8 @@
 """
-Quantum - бот клана (полная исправленная версия)
+Quantum - бот клана (финальная версия под LLM7.io, без Groq)
 - HTTP-сервер для Render
 - /link, /unlink, /ping, /ai — публичные
-- /ai — ИИ через LLM7.io с fallback на Groq
+- /ai — ИИ через LLM7.io
 - /check_bans, /check_mutes — автодополнение по привязанным
 - Парсинг HTML cs2red.ru для банов/мутов
 - Автосинхронизация ролей, проверка наказаний, трекер активности
@@ -88,16 +88,12 @@ ACTIVITY_GOAL_HOURS = 8
 ACTIVITY_MIN_HOURS = 8
 APPLY_EMBED_COLOR = 0x2B2D31
 
-# --- AI / LLM7 / Groq ---
+# --- AI / LLM7 ---
 AI_REPORT_CHANNEL_ID = 1554796338661826660
 LLM7_BASE_URL = "https://api.llm7.io/v1"
 LLM7_API_KEY = os.getenv("LLM7_API_KEY", "unused")
 LLM7_MODEL = "default"
 AI_ANALYSIS_INTERVAL_MINUTES = 60
-
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-GROQ_MODEL = "llama-3.3-70b-versatile"
 
 AI_CHAT_HISTORY_SIZE = 6
 AI_CHAT_MAX_TOKENS = 500
@@ -349,7 +345,7 @@ api = API()
 
 
 # ============================================================
-# LLM7 КЛИЕНТ
+# LLM7 КЛИЕНТ (единственный ИИ)
 # ============================================================
 class LLM7Client:
     def __init__(self, base_url: str = LLM7_BASE_URL,
@@ -444,82 +440,17 @@ class LLM7Client:
 llm7 = LLM7Client()
 
 
-# ============================================================
-# GROQ КЛИЕНТ (fallback)
-# ============================================================
-class GroqClient:
-    def __init__(self):
-        self._session: aiohttp.ClientSession | None = None
-
-    async def start(self):
-        if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=30)
-            )
-
-    async def close(self):
-        if self._session and not self._session.closed:
-            await self._session.close()
-
-    async def chat(self, prompt, system=None, history=None,
-                   max_tokens=500, temperature=0.6) -> str | None:
-        if not GROQ_API_KEY:
-            return None
-        if self._session is None or self._session.closed:
-            await self.start()
-
-        messages = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        if history:
-            messages.extend(history[-AI_CHAT_HISTORY_SIZE:])
-        messages.append({"role": "user", "content": prompt})
-
-        headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "model": GROQ_MODEL,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-        }
-        try:
-            async with self._session.post(
-                f"{GROQ_BASE_URL}/chat/completions",
-                json=payload, headers=headers,
-            ) as r:
-                if r.status != 200:
-                    print(f"⚠️ Groq: {r.status}: {(await r.text())[:200]}")
-                    return None
-                data = await r.json(content_type=None)
-                return data["choices"][0]["message"]["content"]
-        except Exception as e:
-            print(f"⚠️ Groq: {e}")
-            return None
-
-
-groq = GroqClient()
-
-
 async def ai_chat_with_fallback(prompt, system=None, history=None,
                                 model="fast", max_tokens=500,
                                 temperature=0.6, timeout=25) -> tuple[str | None, str]:
-    """Возвращает (ответ, источник). Источник: 'llm7' | 'groq' | 'none'."""
-    answer = await llm7.chat(prompt, system=system, history=history,
-                             model=model, max_tokens=max_tokens,
-                             temperature=temperature, timeout=timeout)
+    """Отправляет запрос в LLM7.io. Возвращает (ответ, источник 'llm7'|'none')."""
+    answer = await llm7.chat(
+        prompt=prompt, system=system, history=history,
+        model=model, max_tokens=max_tokens,
+        temperature=temperature, timeout=timeout,
+    )
     if answer:
         return answer, "llm7"
-
-    if GROQ_API_KEY:
-        print("🔁 LLM7 не ответил, переключаюсь на Groq...")
-        answer = await groq.chat(prompt, system=system, history=history,
-                                 max_tokens=max_tokens, temperature=temperature)
-        if answer:
-            return answer, "groq"
-
     return None, "none"
 
 
@@ -1439,7 +1370,6 @@ class MyBot(commands.Bot):
     async def setup_hook(self):
         await api.start()
         await llm7.start()
-        await groq.start()
         guild = discord.Object(id=GUILD_ID)
         self.tree.copy_global_to(guild=guild)
         synced = await self.tree.sync(guild=guild)
@@ -1454,7 +1384,6 @@ class MyBot(commands.Bot):
     async def close(self):
         await api.close()
         await llm7.close()
-        await groq.close()
         await super().close()
 
 
@@ -1481,7 +1410,6 @@ async def on_app_command_error(interaction: discord.Interaction,
 async def on_ready():
     print(f"✅ Бот {bot.user} готов!")
     print(f"🔑 LLM7_API_KEY: {'ЗАДАН' if LLM7_API_KEY and LLM7_API_KEY != 'unused' else 'unused'}")
-    print(f"🔑 GROQ_API_KEY: {'ЗАДАН' if GROQ_API_KEY else 'НЕ ЗАДАН (fallback отключён)'}")
     asyncio.create_task(_warmup_llm7())
 
 
@@ -1880,14 +1808,12 @@ async def lookup(interaction: discord.Interaction, member: discord.Member):
 
 
 # ============================================================
-# /ping
+# /ping — максимально быстрый
 # ============================================================
 @bot.tree.command(name="ping", description="Проверить, жив ли бот")
 async def ping(interaction: discord.Interaction):
-    before = time.perf_counter()
-    await interaction.response.defer(ephemeral=False)
-    after = time.perf_counter()
-    api_latency_ms = (after - before) * 1000
+    # ⚠️ defer ПЕРВОЙ строкой, без замеров перед ним — иначе 10062
+    await interaction.response.defer(thinking=False)
 
     ws_latency_ms = bot.latency * 1000
     uptime_seconds = int(time.time() - BOT_START_TIME)
@@ -1911,7 +1837,6 @@ async def ping(interaction: discord.Interaction):
     embed.add_field(name="Статус", value="✅ Бот жив и работает", inline=False)
     embed.add_field(name="⏱ Аптайм", value=f"`{uptime_str}`", inline=True)
     embed.add_field(name="📡 WS-задержка", value=f"`{ws_latency_ms:.0f} мс`", inline=True)
-    embed.add_field(name="🌐 HTTP-задержка", value=f"`{api_latency_ms:.0f} мс`", inline=True)
     embed.add_field(name="Связь", value=status, inline=False)
     embed.add_field(name="Система",
                     value=f"Python {platform.python_version()} • discord.py {discord.__version__}",
@@ -1923,7 +1848,7 @@ async def ping(interaction: discord.Interaction):
 
 
 # ============================================================
-# /ai
+# /ai — ИИ в любом канале
 # ============================================================
 AI_CHAT_SYSTEM_PROMPT = (
     "Ты — дружелюбный и полезный ИИ-помощник Discord-сервера клана "
@@ -1941,7 +1866,7 @@ AI_CHAT_SYSTEM_PROMPT = (
 )
 async def ai(interaction: discord.Interaction, prompt: str,
              reset: bool = False, long: bool = False):
-    # ⚠️ defer ДОЛЖЕН быть первой строкой, иначе 10062
+    # ⚠️ defer ПЕРВОЙ строкой, иначе 10062
     await interaction.response.defer(thinking=True)
 
     channel_id = interaction.channel_id
@@ -2008,10 +1933,7 @@ async def ai(interaction: discord.Interaction, prompt: str,
             pass
 
     chunks = [answer[i:i + 1900] for i in range(0, len(answer), 1900)] or ["(пустой ответ)"]
-    header = f"**{interaction.user.display_name} → /ai**"
-    if source == "groq":
-        header += " _(fallback: Groq)_"
-    header += "\n"
+    header = f"**{interaction.user.display_name} → /ai**\n"
     first = header + chunks[0]
     if len(first) > 2000:
         first = first[:1990] + "…"
@@ -2547,7 +2469,7 @@ async def _run_ai_analysis_once() -> str | None:
         model="default", max_tokens=700, temperature=0.4, timeout=45)
 
     if answer is None and not _FIRST_AI_REPORT_DONE:
-        print("🤖 Первый ИИ-анализ: LLM7/Groq недоступны, отчёт пропущен.")
+        print("🤖 Первый ИИ-анализ: LLM7 недоступен, отчёт пропущен.")
         _FIRST_AI_REPORT_DONE = True
         return None
     _FIRST_AI_REPORT_DONE = True
@@ -2560,13 +2482,11 @@ async def _run_ai_analysis_once() -> str | None:
     if answer is None:
         embed = discord.Embed(
             title="🤖 ИИ-анализ недоступен",
-            description="Ни LLM7, ни Groq не ответили. Сырые метрики ниже.",
+            description="LLM7 не ответил. Сырые метрики ниже.",
             color=0xED4245, timestamp=now_utc())
     else:
-        title = "🤖 ИИ-анализ работы бота (Quantum)"
-        if source == "groq":
-            title += " _(fallback: Groq)_"
-        embed = discord.Embed(title=title, color=0x5865F2, timestamp=now_utc())
+        embed = discord.Embed(title="🤖 ИИ-анализ работы бота (Quantum)",
+                              color=0x5865F2, timestamp=now_utc())
         embed.description = answer[:4000]
 
     uptime = stats["uptime_sec"]
