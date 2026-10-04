@@ -11,6 +11,7 @@ Quantum — бот клана (оптимизированная версия)
 + HTTP-сервер для прохождения проверки работоспособности на Render
 + /check_bans и /check_mutes теперь проверяют только выбранного игрока (автодополнение)
 + active_punishments теперь ищет SteamID и ключ снятия в разных местах ответа API
++ добавлена команда /debug_punishments для отладки структуры API
 """
 import os
 import re
@@ -79,8 +80,9 @@ AUTO_ROLE_ID = int(os.getenv("AUTO_ROLE_ID", "0"))
 BYPASS_ROLE_ID = int(os.getenv("BYPASS_ROLE_ID", "0"))
 NO_COOLDOWN_ROLE_ID = 1554633825311654048
 
-BANNED_ROLE_ID = 1554791570161668218
-MUTED_ROLE_ID = 1554821496650862632
+# --- РОЛИ ЗА БАНЫ И МУТЫ (то, что вы указали) ---
+BANNED_ROLE_ID = 1554791570161668218    # роль за бан
+MUTED_ROLE_ID = 1554821496650862632     # роль за мут
 ACTIVITY_ROLE_ID = 1448368118190837800
 
 CLAN_NAME = os.getenv("CLAN_NAME", "TALENT")
@@ -1602,6 +1604,63 @@ async def check_mutes(interaction: discord.Interaction, member: str):
         return
 
     await _check_single_punishment(interaction, target, "mute")
+
+
+# ============================================================
+# ОТЛАДОЧНАЯ КОМАНДА: ПОКАЗЫВАЕТ СЫРОЙ ОТВЕТ API
+# ============================================================
+@bot.tree.command(
+    name="debug_punishments",
+    description="[ОТЛАДКА] Показать сырой ответ API по мутам/банам для SteamID",
+)
+@app_commands.describe(
+    steam_id="SteamID64 игрока",
+    kind="Что проверять: bans или mutes",
+)
+@app_commands.choices(kind=[
+    app_commands.Choice(name="Баны", value="bans"),
+    app_commands.Choice(name="Муты", value="mutes"),
+])
+async def debug_punishments(
+    interaction: discord.Interaction,
+    steam_id: str,
+    kind: app_commands.Choice[str],
+):
+    if not await _admin_guard(interaction):
+        return
+    await interaction.response.defer(ephemeral=True)
+
+    url = f"https://cs2red.ru/api/data/{kind.value}"
+    params = {"begin": 0, "count": 50, "search": steam_id}
+    data = await api._get_json(url, params=params)
+
+    if not data:
+        await interaction.followup.send(
+            f"❌ API вернул пустой ответ или ошибку.\n"
+            f"URL: `{url}`\nПараметры: `{params}`",
+            ephemeral=True,
+        )
+        return
+
+    text = f"**🔍 Ответ API `{kind.value}` для `{steam_id}`**\n\n"
+    text += f"**Ключи верхнего уровня:** `{list(data.keys())}`\n\n"
+
+    items = data.get("bans") or data.get("mutes") or []
+    text += f"**Найдено записей:** {len(items)}\n\n"
+
+    if items:
+        first = items[0]
+        text += f"**Ключи первой записи:** `{list(first.keys())}`\n\n"
+        text += "**Первая запись (JSON):**\n```json\n"
+        text += json.dumps(first, ensure_ascii=False, indent=2)[:1500]
+        text += "\n```"
+    else:
+        text += "_Записей нет. Возможно, SteamID не тот или данные хранятся иначе._"
+
+    if len(text) > 1900:
+        text = text[:1900] + "\n...(обрезано)"
+
+    await interaction.followup.send(text, ephemeral=True)
 
 
 @bot.tree.command(name="link_all", description="Массово привязать из mass_links.json")
