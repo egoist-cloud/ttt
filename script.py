@@ -5,6 +5,7 @@ Quantum - бот клана (оптимизированная версия)
 - Проверка банов/мутов через ПАРСИНГ HTML cs2red.ru (API недоступен)
 - Активным считается наказание, если в строке НЕТ "Размучен"/"Разбанен"
 - /ping - проверка живости бота
+- /ai - обращение к ИИ (LLM7.io) в любом канале сервера
 - ИИ-анализ работы бота через LLM7.io (бесплатно, api_key="unused")
 - Автоотчёт ИИ раз в 60 минут в отдельный канал
 """
@@ -18,6 +19,7 @@ import platform
 import sys
 import threading
 from pathlib import Path
+from collections import defaultdict, deque
 
 import aiohttp
 import discord
@@ -95,6 +97,8 @@ LLM7_BASE_URL = "https://api.llm7.io/v1"
 LLM7_API_KEY = "unused"                          # бесплатный доступ, ключ не нужен
 LLM7_MODEL = "default"
 AI_ANALYSIS_INTERVAL_MINUTES = 60                # раз в час
+AI_CHAT_HISTORY_SIZE = 10                        # сообщений в истории на канал
+AI_CHAT_MAX_TOKENS = 800                         # максимум токенов в ответе /ai
 
 # Время старта бота (для /ping)
 BOT_START_TIME = time.time()
@@ -197,7 +201,7 @@ seen_store = JsonStore(data_path("seen.json"), dict)
 
 
 # ============================================================
-# HTTP-КЛИЕНТ
+# HTTP-КЛИЕНТ CS2RED / STEAM
 # ============================================================
 class API:
     def __init__(self):
@@ -374,14 +378,22 @@ class LLM7Client:
             await self._session.close()
 
     async def chat(self, prompt: str, system: str | None = None,
+                   history: list | None = None,
                    max_tokens: int = 900, temperature: float = 0.5) -> str | None:
-        """Отправить один запрос к LLM7. Возвращает текст ответа или None."""
+        """
+        Отправить один запрос к LLM7. Возвращает текст ответа или None.
+        history - список сообщений [{"role": "user"/"assistant", "content": "..."}]
+                  для поддержания контекста диалога.
+        """
         if self._session is None or self._session.closed:
             await self.start()
 
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
+        if history:
+            # Обрезаем историю, чтобы не превышать лимиты
+            messages.extend(history[-(AI_CHAT_HISTORY_SIZE):])
         messages.append({"role": "user", "content": prompt})
 
         payload = {
@@ -428,6 +440,13 @@ class LLM7Client:
 
 
 llm7 = LLM7Client()
+
+
+# ============================================================
+# ПАМЯТЬ ДИАЛОГА /ai (по каналам)
+# ============================================================
+ai_chat_history: dict[int, deque] = defaultdict(lambda: deque(maxlen=AI_CHAT_HISTORY_SIZE))
+ai_chat_locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 
 # ============================================================
@@ -1320,7 +1339,8 @@ class ClanView(discord.ui.View):
 # ============================================================
 # БОТ
 # ============================================================
-PUBLIC_COMMANDS = {"link", "unlink", "ping"}
+# Публичные команды — доступны всем без проверки модератора
+PUBLIC_COMMANDS = {"link", "unlink", "ping", "ai"}
 
 
 class MyBot(commands.Bot):
@@ -1798,7 +1818,6 @@ async def lookup(interaction: discord.Interaction, member: discord.Member):
 # ============================================================
 @bot.tree.command(name="ping", description="Проверить, жив ли бот, и узнать аптайм/задержку")
 async def ping(interaction: discord.Interaction):
-    # Замеряем задержку ответа Discord (round-trip)
     before = time.perf_counter()
     await interaction.response.defer(ephemeral=False)
     after = time.perf_counter()
@@ -1819,7 +1838,6 @@ async def ping(interaction: discord.Interaction):
     else:
         uptime_str = f"{days} д. {hours} ч. {minutes} мин."
 
-    # Статус связи
     if ws_latency_ms < 150:
         status = "🟢 Отличная связь"
     elif ws_latency_ms < 400:
@@ -1827,8 +1845,7 @@ async def ping(interaction: discord.Interaction):
     else:
         status = "🟠 Высокая задержка"
 
-    embed = discord.Embed(title="🏓 Pong!", color=0x2B2D31,
-                          timestamp=now_utc())
+    embed = discord.Embed(title="🏓 Pong!", color=0x2B2D31, timestamp=now_utc())
     embed.add_field(name="Статус", value="✅ Бот жив и работает", inline=False)
     embed.add_field(name="⏱ Аптайм", value=f"`{uptime_str}`", inline=True)
     embed.add_field(name="📡 WS-задержка", value=f"`{ws_latency_ms:.0f} мс`", inline=True)
@@ -1847,241 +1864,82 @@ async def ping(interaction: discord.Interaction):
 
 
 # ============================================================
-# ИИ-АНАЛИЗ СКРИПТА / ПОВЕДЕНИЯ БОТА (раз в 60 минут)
+# /ai — обращение к ИИ (LLM7.io) в любом канале
 # ============================================================
-AI_SYSTEM_PROMPT = (
-    "Ты — технический аналитик Discord-бота. Тебе дают метрики работы "
-    "бота и статистику по его задачам. Твоя задача — оценить, насколько "
-    "поведение бота выглядит «роботизированным» (автоматизированным, "
-    "по расписанию, без вариативности), выявить риски и предложить "
-    "краткие улучшения. Отвечай СЖАТО на русском языке, без воды, "
-    "по пунктам, не более 900 токенов."
+AI_CHAT_SYSTEM_PROMPT = (
+    "Ты — дружелюбный и полезный ИИ-помощник Discord-сервера клана "
+    f"{CLAN_NAME}. Отвечай кратко, по делу, на русском языке. "
+    "Если пользователь пишет на другом языке — отвечай на его языке. "
+    "Не выдумывай факты, если не уверен — так и скажи. "
+    "Можно использовать markdown (жирный, списки, код)."
 )
 
 
-def _collect_runtime_stats() -> dict:
-    """Собирает метрики текущего состояния бота."""
-    links = links_store.read()
-    players = players_store.read()
-    bans = bans_store.read()
-    moders = moders_store.read()
-    votes = votes_store.read()
+@bot.tree.command(name="ai", description="Спросить у ИИ что угодно (работает в любом канале)")
+@app_commands.describe(
+    prompt="Ваш вопрос или запрос к ИИ",
+    reset="Сбросить историю диалога в этом канале (по умолчанию False)",
+)
+async def ai(interaction: discord.Interaction, prompt: str, reset: bool = False):
+    # Проверяем, что бот вообще может писать в этот канал
+    me = interaction.guild.me if interaction.guild else None
+    if interaction.channel and me:
+        perms = interaction.channel.permissions_for(me)
+        if not perms.send_messages:
+            await interaction.response.send_message(
+                "❌ У бота нет права писать в этом канале.", ephemeral=True)
+            return
 
-    # Подсчёт активных наказаний и истекающих запретов
-    now = now_utc()
-    active_temp_bans = 0
-    perm_bans = 0
-    for entry in bans.values():
-        if not isinstance(entry, dict):
-            continue
-        t = entry.get("type")
-        if t == "perm":
-            perm_bans += 1
-        elif t == "temp":
-            try:
-                until = datetime.datetime.fromisoformat(entry.get("until") or "")
-                if until.tzinfo is None:
-                    until = until.replace(tzinfo=UTC)
-                if until > now:
-                    active_temp_bans += 1
-            except Exception:
-                pass
+    # Сбрасываем историю при необходимости
+    if reset:
+        ai_chat_history.pop(interaction.channel_id, None)
 
-    guild = bot.get_guild(GUILD_ID) if GUILD_ID else None
-    members_total = guild.member_count if guild else 0
+    await interaction.response.defer(thinking=True)
 
-    # Статистика активностей
-    total_hours = 0.0
-    active_players = 0
-    for p in players.values():
-        act = p.get("activity") if isinstance(p, dict) else None
-        if isinstance(act, dict) and act:
-            active_players += 1
-            for v in act.values():
-                try:
-                    total_hours += float(v)
-                except (TypeError, ValueError):
-                    continue
+    channel_id = interaction.channel_id
+    history_snapshot = list(ai_chat_history.get(channel_id, []))
 
-    return {
-        "uptime_sec": int(time.time() - BOT_START_TIME),
-        "ws_latency_ms": round(bot.latency * 1000, 1),
-        "guild_members": members_total,
-        "linked_users": len(links),
-        "players_in_db": len(players),
-        "active_players": active_players,
-        "total_tracked_hours": round(total_hours, 2),
-        "moderators_count": len(moders),
-        "votes_records": len(votes),
-        "perm_bans": perm_bans,
-        "active_temp_bans": active_temp_bans,
-        "tasks_running": {
-            "auto_sync": auto_sync.is_running(),
-            "ban_check": ban_check.is_running(),
-            "mute_check": mute_check.is_running(),
-            "activity_tracker": activity_tracker.is_running(),
-            "ai_script_analysis": ai_script_analysis.is_running(),
-        },
-        "sync_interval_min": SYNC_INTERVAL_MINUTES,
-        "ban_interval_h": BAN_CHECK_INTERVAL_HOURS,
-        "mute_interval_h": MUTE_CHECK_INTERVAL_HOURS,
-        "activity_track_sec": ACTIVITY_TRACK_SECONDS,
-        "ai_interval_min": AI_ANALYSIS_INTERVAL_MINUTES,
-    }
-
-
-def _build_ai_prompt(stats: dict, prev_report: str | None = None) -> str:
-    lines = [
-        "Проанализируй работу Discord-бота клана (Quantum).",
-        "",
-        "=== МЕТРИКИ ===",
-        f"Аптайм (сек): {stats['uptime_sec']}",
-        f"WS-задержка (мс): {stats['ws_latency_ms']}",
-        f"Участников на сервере: {stats['guild_members']}",
-        f"Привязанных Discord↔Steam: {stats['linked_users']}",
-        f"Игроков в БД: {stats['players_in_db']} (с активностью: {stats['active_players']})",
-        f"Всего учтённых часов активности: {stats['total_tracked_hours']}",
-        f"Модераторов в списке доступа: {stats['moderators_count']}",
-        f"Записей голосований: {stats['votes_records']}",
-        f"Перманентных запретов: {stats['perm_bans']}",
-        f"Активных временных запретов: {stats['active_temp_bans']}",
-        "",
-        "=== ФОНОВЫЕ ЗАДАЧИ ===",
-    ]
-    for name, running in stats["tasks_running"].items():
-        lines.append(f"- {name}: {'запущена' if running else 'ОСТАНОВЛЕНА'}")
-    lines += [
-        f"- auto_sync: каждые {stats['sync_interval_min']} мин",
-        f"- ban_check: каждые {stats['ban_interval_h']} ч",
-        f"- mute_check: каждые {stats['mute_interval_h']} ч",
-        f"- activity_tracker: каждые {stats['activity_track_sec']} сек",
-        f"- ai_script_analysis: каждые {stats['ai_interval_min']} мин",
-        "",
-        "=== ЗАДАНИЕ ===",
-        "1) Оцени «роботизированность» поведения бота по шкале 0-10 "
-        "(0 = полностью ручное, 10 = максимально автоматизировано). "
-        "Объясни оценку 2-3 пунктами.",
-        "2) Укажи 3 главных риска (например: rate-limit HTML-парсинга, "
-        "дублирование задач, пропуски проверок).",
-        "3) Дай 3-4 коротких практических улучшения.",
-        "4) Сделай итоговый вывод в 1-2 строки.",
-    ]
-    if prev_report:
-        lines += [
-            "",
-            "=== ПРЕДЫДУЩИЙ ОТЧЁТ (для сравнения) ===",
-            prev_report[:1500],
-        ]
-    return "\n".join(lines)
-
-
-async def _run_ai_analysis_once() -> str | None:
-    """Один цикл анализа + отправка отчёта в канал."""
-    stats = _collect_runtime_stats()
-    prev = None
-    try:
-        prev_path = data_path("ai_last_report.txt")
-        if prev_path.exists():
-            prev = prev_path.read_text(encoding="utf-8")
-    except Exception:
-        prev = None
-
-    prompt = _build_ai_prompt(stats, prev)
-    answer = await llm7.chat(prompt, system=AI_SYSTEM_PROMPT,
-                             max_tokens=900, temperature=0.4)
-
-    channel = bot.get_channel(AI_REPORT_CHANNEL_ID)
-    if channel is None:
-        print(f"⚠️ Канал отчётов ИИ {AI_REPORT_CHANNEL_ID} не найден.")
-        return None
-
-    if answer is None:
-        # Отчёт без ИИ, чтобы канал не молчал
-        embed = discord.Embed(
-            title="🤖 ИИ-анализ недоступен",
-            description=(
-                "Не удалось получить ответ от LLM7.io. "
-                "Ниже — сырые метрики для ручной проверки."
-            ),
-            color=0xED4245,
-            timestamp=now_utc(),
+    # Лок на канал, чтобы параллельные запросы не портили историю
+    async with ai_chat_locks[channel_id]:
+        answer = await llm7.chat(
+            prompt=prompt,
+            system=AI_CHAT_SYSTEM_PROMPT,
+            history=history_snapshot,
+            max_tokens=AI_CHAT_MAX_TOKENS,
+            temperature=0.7,
         )
-    else:
-        embed = discord.Embed(
-            title="🤖 ИИ-анализ работы бота (Quantum)",
-            color=0x5865F2,
-            timestamp=now_utc(),
-        )
-        # Discord ограничивает описание 4096 символами
-        embed.description = answer[:4000]
 
-    # Всегда добавляем метрики
-    uptime = stats["uptime_sec"]
-    d, r = divmod(uptime, 86400)
-    h, r = divmod(r, 3600)
-    m, _ = divmod(r, 60)
-    uptime_str = f"{d}д {h}ч {m}м"
+        if answer is None:
+            await interaction.followup.send(
+                "⚠️ ИИ временно недоступен (rate-limit или сеть). Попробуйте позже.",
+                ephemeral=False,
+            )
+            return
 
-    embed.add_field(name="⏱ Аптайм", value=f"`{uptime_str}`", inline=True)
-    embed.add_field(name="📡 WS-пинг", value=f"`{stats['ws_latency_ms']} мс`", inline=True)
-    embed.add_field(name="👥 Привязано", value=f"`{stats['linked_users']}`", inline=True)
-    embed.add_field(name="🧩 Задач активно",
-                    value=f"`{sum(1 for v in stats['tasks_running'].values() if v)}/5`",
-                    inline=True)
-    embed.add_field(name="🚫 Запретов",
-                    value=f"`perm: {stats['perm_bans']} / temp: {stats['active_temp_bans']}`",
-                    inline=True)
-    embed.add_field(name="📊 Часов активности",
-                    value=f"`{stats['total_tracked_hours']}`", inline=True)
+        # Сохраняем в историю канала
+        hist = ai_chat_history[channel_id]
+        hist.append({"role": "user", "content": prompt})
+        hist.append({"role": "assistant", "content": answer})
 
-    if bot.user:
-        embed.set_footer(text=f"Quantum AI Monitor • {utc_stamp()} (UTC)",
-                         icon_url=bot.user.display_avatar.url)
+    # Разбиваем длинный ответ на части по 1900 символов
+    chunks = [answer[i:i + 1900] for i in range(0, len(answer), 1900)] or ["(пустой ответ)"]
+
+    # Заголовок от пользователя (в первом сообщении)
+    header = f"**{interaction.user.display_name} → /ai**\n"
+    first = header + chunks[0]
+    if len(first) > 2000:
+        # если заголовок + кусок не влезают — режем chunk
+        first = first[:1990] + "…"
 
     try:
-        await channel.send(embed=embed)
+        await interaction.followup.send(first)
+        for extra in chunks[1:]:
+            await interaction.channel.send(extra)
+    except discord.Forbidden:
+        await interaction.followup.send(
+            "❌ Не удалось отправить ответ (нет прав).", ephemeral=True)
     except Exception as e:
-        print(f"⚠️ Не удалось отправить ИИ-отчёт: {e}")
-        return None
-
-    if answer:
-        try:
-            data_path("ai_last_report.txt").write_text(answer, encoding="utf-8")
-        except Exception as e:
-            print(f"⚠️ Не удалось сохранить последний ИИ-отчёт: {e}")
-
-    return answer
-
-
-@tasks.loop(minutes=AI_ANALYSIS_INTERVAL_MINUTES)
-async def ai_script_analysis():
-    print(f"\n🤖 ИИ-анализ бота - {now_utc().isoformat()}")
-    try:
-        await _run_ai_analysis_once()
-    except Exception as e:
-        print(f"⚠️ ai_script_analysis упал: {e}")
-
-
-@ai_script_analysis.before_loop
-async def before_ai_script_analysis():
-    await bot.wait_until_ready()
-    # Небольшая задержка, чтобы бот успел поднять все остальные задачи
-    await asyncio.sleep(30)
-
-
-@ai_script_analysis.error
-async def ai_script_analysis_error(error):
-    print(f"⚠️ ai_script_analysis ошибка: {error}")
-
-
-@bot.tree.command(name="ai_report", description="Запустить ИИ-анализ работы бота вручную")
-async def ai_report(interaction: discord.Interaction):
-    if not await _admin_guard(interaction):
-        return
-    await interaction.response.defer(ephemeral=True)
-    await interaction.followup.send("🤖 Запускаю анализ, отчёт придёт в канал мониторинга.",
-                                    ephemeral=True)
-    asyncio.create_task(_run_ai_analysis_once())
+        print(f"⚠️ /ai: ошибка отправки: {e}")
 
 
 # ============================================================
@@ -2478,6 +2336,240 @@ mute_check.before_loop(before_mute_check)
 @auto_sync.before_loop
 async def before_auto_sync():
     await bot.wait_until_ready()
+
+
+# ============================================================
+# ИИ-АНАЛИЗ СКРИПТА / ПОВЕДЕНИЯ БОТА (раз в 60 минут)
+# ============================================================
+AI_SYSTEM_PROMPT = (
+    "Ты — технический аналитик Discord-бота. Тебе дают метрики работы "
+    "бота и статистику по его задачам. Твоя задача — оценить, насколько "
+    "поведение бота выглядит «роботизированным» (автоматизированным, "
+    "по расписанию, без вариативности), выявить риски и предложить "
+    "краткие улучшения. Отвечай СЖАТО на русском языке, без воды, "
+    "по пунктам, не более 900 токенов."
+)
+
+
+def _collect_runtime_stats() -> dict:
+    """Собирает метрики текущего состояния бота."""
+    links = links_store.read()
+    players = players_store.read()
+    bans = bans_store.read()
+    moders = moders_store.read()
+    votes = votes_store.read()
+
+    now = now_utc()
+    active_temp_bans = 0
+    perm_bans = 0
+    for entry in bans.values():
+        if not isinstance(entry, dict):
+            continue
+        t = entry.get("type")
+        if t == "perm":
+            perm_bans += 1
+        elif t == "temp":
+            try:
+                until = datetime.datetime.fromisoformat(entry.get("until") or "")
+                if until.tzinfo is None:
+                    until = until.replace(tzinfo=UTC)
+                if until > now:
+                    active_temp_bans += 1
+            except Exception:
+                pass
+
+    guild = bot.get_guild(GUILD_ID) if GUILD_ID else None
+    members_total = guild.member_count if guild else 0
+
+    total_hours = 0.0
+    active_players = 0
+    for p in players.values():
+        act = p.get("activity") if isinstance(p, dict) else None
+        if isinstance(act, dict) and act:
+            active_players += 1
+            for v in act.values():
+                try:
+                    total_hours += float(v)
+                except (TypeError, ValueError):
+                    continue
+
+    return {
+        "uptime_sec": int(time.time() - BOT_START_TIME),
+        "ws_latency_ms": round(bot.latency * 1000, 1),
+        "guild_members": members_total,
+        "linked_users": len(links),
+        "players_in_db": len(players),
+        "active_players": active_players,
+        "total_tracked_hours": round(total_hours, 2),
+        "moderators_count": len(moders),
+        "votes_records": len(votes),
+        "perm_bans": perm_bans,
+        "active_temp_bans": active_temp_bans,
+        "ai_channels_with_history": len(ai_chat_history),
+        "tasks_running": {
+            "auto_sync": auto_sync.is_running(),
+            "ban_check": ban_check.is_running(),
+            "mute_check": mute_check.is_running(),
+            "activity_tracker": activity_tracker.is_running(),
+            "ai_script_analysis": ai_script_analysis.is_running(),
+        },
+        "sync_interval_min": SYNC_INTERVAL_MINUTES,
+        "ban_interval_h": BAN_CHECK_INTERVAL_HOURS,
+        "mute_interval_h": MUTE_CHECK_INTERVAL_HOURS,
+        "activity_track_sec": ACTIVITY_TRACK_SECONDS,
+        "ai_interval_min": AI_ANALYSIS_INTERVAL_MINUTES,
+    }
+
+
+def _build_ai_prompt(stats: dict, prev_report: str | None = None) -> str:
+    lines = [
+        "Проанализируй работу Discord-бота клана (Quantum).",
+        "",
+        "=== МЕТРИКИ ===",
+        f"Аптайм (сек): {stats['uptime_sec']}",
+        f"WS-задержка (мс): {stats['ws_latency_ms']}",
+        f"Участников на сервере: {stats['guild_members']}",
+        f"Привязанных Discord↔Steam: {stats['linked_users']}",
+        f"Игроков в БД: {stats['players_in_db']} (с активностью: {stats['active_players']})",
+        f"Всего учтённых часов активности: {stats['total_tracked_hours']}",
+        f"Модераторов в списке доступа: {stats['moderators_count']}",
+        f"Записей голосований: {stats['votes_records']}",
+        f"Перманентных запретов: {stats['perm_bans']}",
+        f"Активных временных запретов: {stats['active_temp_bans']}",
+        f"Каналов с активной историей /ai: {stats['ai_channels_with_history']}",
+        "",
+        "=== ФОНОВЫЕ ЗАДАЧИ ===",
+    ]
+    for name, running in stats["tasks_running"].items():
+        lines.append(f"- {name}: {'запущена' if running else 'ОСТАНОВЛЕНА'}")
+    lines += [
+        f"- auto_sync: каждые {stats['sync_interval_min']} мин",
+        f"- ban_check: каждые {stats['ban_interval_h']} ч",
+        f"- mute_check: каждые {stats['mute_interval_h']} ч",
+        f"- activity_tracker: каждые {stats['activity_track_sec']} сек",
+        f"- ai_script_analysis: каждые {stats['ai_interval_min']} мин",
+        "",
+        "=== ЗАДАНИЕ ===",
+        "1) Оцени «роботизированность» поведения бота по шкале 0-10 "
+        "(0 = полностью ручное, 10 = максимально автоматизировано). "
+        "Объясни оценку 2-3 пунктами.",
+        "2) Укажи 3 главных риска (например: rate-limit HTML-парсинга, "
+        "дублирование задач, пропуски проверок).",
+        "3) Дай 3-4 коротких практических улучшения.",
+        "4) Сделай итоговый вывод в 1-2 строки.",
+    ]
+    if prev_report:
+        lines += [
+            "",
+            "=== ПРЕДЫДУЩИЙ ОТЧЁТ (для сравнения) ===",
+            prev_report[:1500],
+        ]
+    return "\n".join(lines)
+
+
+async def _run_ai_analysis_once() -> str | None:
+    """Один цикл анализа + отправка отчёта в канал."""
+    stats = _collect_runtime_stats()
+    prev = None
+    try:
+        prev_path = data_path("ai_last_report.txt")
+        if prev_path.exists():
+            prev = prev_path.read_text(encoding="utf-8")
+    except Exception:
+        prev = None
+
+    prompt = _build_ai_prompt(stats, prev)
+    answer = await llm7.chat(prompt, system=AI_SYSTEM_PROMPT,
+                             max_tokens=900, temperature=0.4)
+
+    channel = bot.get_channel(AI_REPORT_CHANNEL_ID)
+    if channel is None:
+        print(f"⚠️ Канал отчётов ИИ {AI_REPORT_CHANNEL_ID} не найден.")
+        return None
+
+    if answer is None:
+        embed = discord.Embed(
+            title="🤖 ИИ-анализ недоступен",
+            description=(
+                "Не удалось получить ответ от LLM7.io. "
+                "Ниже — сырые метрики для ручной проверки."
+            ),
+            color=0xED4245,
+            timestamp=now_utc(),
+        )
+    else:
+        embed = discord.Embed(
+            title="🤖 ИИ-анализ работы бота (Quantum)",
+            color=0x5865F2,
+            timestamp=now_utc(),
+        )
+        embed.description = answer[:4000]
+
+    uptime = stats["uptime_sec"]
+    d, r = divmod(uptime, 86400)
+    h, r = divmod(r, 3600)
+    m, _ = divmod(r, 60)
+    uptime_str = f"{d}д {h}ч {m}м"
+
+    embed.add_field(name="⏱ Аптайм", value=f"`{uptime_str}`", inline=True)
+    embed.add_field(name="📡 WS-пинг", value=f"`{stats['ws_latency_ms']} мс`", inline=True)
+    embed.add_field(name="👥 Привязано", value=f"`{stats['linked_users']}`", inline=True)
+    embed.add_field(name="🧩 Задач активно",
+                    value=f"`{sum(1 for v in stats['tasks_running'].values() if v)}/5`",
+                    inline=True)
+    embed.add_field(name="🚫 Запретов",
+                    value=f"`perm: {stats['perm_bans']} / temp: {stats['active_temp_bans']}`",
+                    inline=True)
+    embed.add_field(name="📊 Часов активности",
+                    value=f"`{stats['total_tracked_hours']}`", inline=True)
+
+    if bot.user:
+        embed.set_footer(text=f"Quantum AI Monitor • {utc_stamp()} (UTC)",
+                         icon_url=bot.user.display_avatar.url)
+
+    try:
+        await channel.send(embed=embed)
+    except Exception as e:
+        print(f"⚠️ Не удалось отправить ИИ-отчёт: {e}")
+        return None
+
+    if answer:
+        try:
+            data_path("ai_last_report.txt").write_text(answer, encoding="utf-8")
+        except Exception as e:
+            print(f"⚠️ Не удалось сохранить последний ИИ-отчёт: {e}")
+
+    return answer
+
+
+@tasks.loop(minutes=AI_ANALYSIS_INTERVAL_MINUTES)
+async def ai_script_analysis():
+    print(f"\n🤖 ИИ-анализ бота - {now_utc().isoformat()}")
+    try:
+        await _run_ai_analysis_once()
+    except Exception as e:
+        print(f"⚠️ ai_script_analysis упал: {e}")
+
+
+@ai_script_analysis.before_loop
+async def before_ai_script_analysis():
+    await bot.wait_until_ready()
+    await asyncio.sleep(30)
+
+
+@ai_script_analysis.error
+async def ai_script_analysis_error(error):
+    print(f"⚠️ ai_script_analysis ошибка: {error}")
+
+
+@bot.tree.command(name="ai_report", description="Запустить ИИ-анализ работы бота вручную")
+async def ai_report(interaction: discord.Interaction):
+    if not await _admin_guard(interaction):
+        return
+    await interaction.response.defer(ephemeral=True)
+    await interaction.followup.send("🤖 Запускаю анализ, отчёт придёт в канал мониторинга.",
+                                    ephemeral=True)
+    asyncio.create_task(_run_ai_analysis_once())
 
 
 # ============================================================
