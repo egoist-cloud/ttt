@@ -1,5 +1,5 @@
 """
-Quantum - бот клана (v12: 2 эмбеда автосинхронизации, без ИИ)
+Quantum - бот клана (v13: 2 эмбеда автосинхронизации + /health, без ИИ)
 """
 import os
 import re
@@ -1175,7 +1175,7 @@ class ClanView(discord.ui.View):
 # ============================================================
 # БОТ
 # ============================================================
-PUBLIC_COMMANDS = {"link", "unlink", "ping"}
+PUBLIC_COMMANDS = {"link", "unlink", "ping", "health"}
 
 
 class MyBot(commands.Bot):
@@ -1692,6 +1692,240 @@ async def ping(i):
 
 
 # ============================================================
+# /health — проверка всех систем бота
+# ============================================================
+@bot.tree.command(name="health", description="Проверить работу всех систем бота")
+async def health(i: discord.Interaction):
+    if not await _admin_guard(i):
+        return
+    await i.response.defer(ephemeral=False)
+
+    results = []
+    ok_count = 0
+    fail_count = 0
+
+    def add(emoji, name, status, ok):
+        nonlocal ok_count, fail_count
+        results.append((emoji, name, status, ok))
+        if ok:
+            ok_count += 1
+        else:
+            fail_count += 1
+
+    # 1. Discord WS
+    ws_ms = bot.latency * 1000
+    add("🌐", "Discord WebSocket", f"`{ws_ms:.0f} мс`", ws_ms < 500)
+
+    # 2. Guild
+    guild = i.guild
+    if guild:
+        add("🏠", "Guild",
+            f"`{guild.name}` (`{guild.id}`), участников: `{guild.member_count}`", True)
+    else:
+        add("🏠", "Guild", "не найден", False)
+
+    # 3. Права бота
+    me = guild.me if guild else None
+    if me and guild:
+        needed = {
+            "Manage Roles": me.guild_permissions.manage_roles,
+            "Send Messages": me.guild_permissions.send_messages,
+            "Embed Links": me.guild_permissions.embed_links,
+            "Manage Threads": me.guild_permissions.manage_threads,
+            "Read Message History": me.guild_permissions.read_message_history,
+        }
+        missing = [name for name, ok in needed.items() if not ok]
+        if not missing:
+            add("🔐", "Права бота", "все необходимые выданы ✅", True)
+        else:
+            add("🔐", "Права бота", f"❌ нет: {', '.join(missing)}", False)
+    else:
+        add("🔐", "Права бота", "не удалось получить", False)
+
+    # 4. cs2red /admin/users
+    try:
+        t0 = time.perf_counter()
+        test = await api._get_json(
+            "https://cs2red.ru/api/admin/users",
+            params={"begin": 0, "count": 1})
+        dt = (time.perf_counter() - t0) * 1000
+        if test is not None and test.get("success") is not None:
+            add("🍪", "cs2red /admin/users",
+                f"`{dt:.0f} мс`, cookies `{len(CS2RED_COOKIES)}` шт.", True)
+        else:
+            status = getattr(api, "last_status", "?")
+            add("🍪", "cs2red /admin/users",
+                f"❌ ответ `{status}`, cookies `{len(CS2RED_COOKIES)}` шт.", False)
+    except Exception as e:
+        add("🍪", "cs2red /admin/users", f"❌ {e}", False)
+
+    # 5. cs2red /api/clans
+    try:
+        t0 = time.perf_counter()
+        clans_raw = await api._get_json("https://cs2red.ru/api/clans")
+        dt = (time.perf_counter() - t0) * 1000
+        if clans_raw and clans_raw.get("success"):
+            clans = clans_raw.get("clans") or []
+            total_members = sum(len(c.get("members") or []) for c in clans)
+            if clans and total_members > 0:
+                add("🏰", "cs2red /api/clans",
+                    f"`{dt:.0f} мс`, кланов `{len(clans)}`, участников `{total_members}`",
+                    True)
+            else:
+                add("🏰", "cs2red /api/clans",
+                    f"⚠️ пусто: кланов `{len(clans)}`, members `{total_members}`",
+                    False)
+        else:
+            status = getattr(api, "last_status", "?")
+            add("🏰", "cs2red /api/clans", f"❌ ответ `{status}`", False)
+    except Exception as e:
+        add("🏰", "cs2red /api/clans", f"❌ {e}", False)
+
+    # 6. Steam API
+    steam_key = os.getenv("STEAM_API_KEY")
+    if not steam_key:
+        add("🎮", "Steam API", "❌ ключ не задан", False)
+    else:
+        try:
+            t0 = time.perf_counter()
+            test = await api._steam_get(
+                "ISteamUser/GetPlayerBans/v1/",
+                {"steam_id": "76561198000000000"})
+            dt = (time.perf_counter() - t0) * 1000
+            if test is not None:
+                add("🎮", "Steam API", f"`{dt:.0f} мс`, ключ работает", True)
+            else:
+                add("🎮", "Steam API", "❌ не отвечает", False)
+        except Exception as e:
+            add("🎮", "Steam API", f"❌ {e}", False)
+
+    # 7. Файлы JSON
+    files_to_check = [
+        ("links.json", links_store.read()),
+        ("players_db.json", players_store.read()),
+        ("users_db.json", bans_store.read()),
+        ("moderators.json", moders_store.read()),
+        ("votes.json", votes_store.read()),
+        ("seen.json", seen_store.read()),
+    ]
+    for name, data in files_to_check:
+        try:
+            size = len(data) if hasattr(data, "__len__") else "?"
+            add("📁", f"Файл `{name}`", f"записей: `{size}`", True)
+        except Exception as e:
+            add("📁", f"Файл `{name}`", f"❌ {e}", False)
+
+    # 8. mass_links.json
+    mass_file = data_path("mass_links.json")
+    if mass_file.exists():
+        try:
+            with open(mass_file, "r", encoding="utf-8") as f:
+                mass = json.load(f)
+            total = len(mass)
+            valid = sum(
+                1 for k, v in mass.items()
+                if isinstance(v, str) and v.isdigit()
+                and len(v) == 17 and v.startswith("7656119")
+            )
+            add("📁", "Файл `mass_links.json`",
+                f"всего `{total}`, валидных SteamID `{valid}`", True)
+        except json.JSONDecodeError:
+            add("📁", "Файл `mass_links.json`",
+                "❌ JSON повреждён (проверь на jsonlint.com)", False)
+        except Exception as e:
+            add("📁", "Файл `mass_links.json`", f"❌ {e}", False)
+    else:
+        add("📁", "Файл `mass_links.json`", "⚠️ не найден", False)
+
+    # 9. Фоновые задачи
+    tasks_to_check = [
+        ("auto_sync", auto_sync, f"{SYNC_INTERVAL_MINUTES} мин"),
+        ("ban_check", ban_check, f"{BAN_CHECK_INTERVAL_HOURS} ч"),
+        ("mute_check", mute_check, f"{MUTE_CHECK_INTERVAL_HOURS} ч"),
+        ("activity_tracker", activity_tracker, f"{ACTIVITY_TRACK_SECONDS // 60} мин"),
+    ]
+    for name, task_obj, interval in tasks_to_check:
+        if task_obj.is_running():
+            nxt = task_obj.next_iteration
+            if nxt:
+                sec = int((nxt - now_utc()).total_seconds())
+                if sec < 0:
+                    sec = 0
+                m_, s_ = divmod(sec, 60)
+                next_str = f"{m_} мин. {s_} сек." if m_ else f"{s_} сек."
+                add("⚙️", f"Задача `{name}`",
+                    f"✅ работает, интервал {interval}, след. через `{next_str}`",
+                    True)
+            else:
+                add("⚙️", f"Задача `{name}`",
+                    f"✅ работает, интервал {interval}", True)
+        else:
+            add("⚙️", f"Задача `{name}`", "❌ не запущена", False)
+
+    # 10. Каналы
+    channels_check = [
+        ("LOG_CHANNEL_ID", LOG_CHANNEL_ID),
+        ("DB_CHANNEL_ID", DB_CHANNEL_ID),
+        ("APPLICATIONS_CHANNEL_ID", APPLICATIONS_CHANNEL_ID),
+        ("THREADS_CHANNEL_ID", THREADS_CHANNEL_ID),
+    ]
+    for name, cid in channels_check:
+        if not cid:
+            add("📢", f"Канал `{name}`", "⚠️ не задан", False)
+            continue
+        ch = bot.get_channel(cid)
+        if ch is None:
+            add("📢", f"Канал `{name}`", f"❌ не найден (`{cid}`)", False)
+        else:
+            perm_ok = True
+            if me:
+                perms = ch.permissions_for(me)
+                perm_ok = perms.send_messages
+            add("📢", f"Канал `{name}`",
+                f"`#{ch.name}` ({cid}), send: {'✅' if perm_ok else '❌'}",
+                perm_ok)
+
+    # 11. Последний HTTP-статус cs2red
+    last_status = getattr(api, "last_status", None)
+    add("📡", "Последний HTTP-статус cs2red",
+        f"`{last_status}`" if last_status else "нет данных",
+        last_status == 200)
+
+    # ---- Формируем эмбед ----
+    total_checks = ok_count + fail_count
+    if fail_count == 0:
+        color = 0x57F287
+        title = "✅ Все системы работают"
+    elif ok_count >= fail_count:
+        color = 0xFEE75C
+        title = f"⚠️ Работает: {ok_count}/{total_checks}, проблем: {fail_count}"
+    else:
+        color = 0xED4245
+        title = f"❌ Проблем много: {fail_count} из {total_checks}"
+
+    embed = discord.Embed(
+        title=f"🩺 Проверка систем бота — {title}",
+        description=(
+            f"**Итог:** ✅ `{ok_count}` работает / ❌ `{fail_count}` проблем\n"
+            f"**Всего проверок:** `{total_checks}`"
+        ),
+        color=color,
+        timestamp=now_utc(),
+    )
+    for emoji, name, status, ok in results:
+        arrow = "✅" if ok else "❌"
+        embed.add_field(name=f"{emoji} {arrow} {name}",
+                        value=status[:1024], inline=False)
+
+    if bot.user:
+        embed.set_footer(text=f"Quantum • {utc_stamp()} (UTC)",
+                         icon_url=bot.user.display_avatar.url)
+
+    await safe_send(i.followup, embed=embed)
+    await log_to_channel(i.client, f"🩺 /health: ✅ {ok_count} / ❌ {fail_count}")
+
+
+# ============================================================
 # МОДЕРАТОРЫ
 # ============================================================
 @bot.tree.command(name="moders", description="Список модераторов бота")
@@ -1922,7 +2156,7 @@ async def before_activity_tracker():
 
 
 # ============================================================
-# АВТОСИНХРОНИЗАЦИЯ + ОТЧЁТ В 2 ЭМБЕДА
+# АВТОСИНХРОНИЗАЦИЯ + 2 ЭМБЕДА
 # ============================================================
 def _short(text: str, length: int) -> str:
     if len(text) <= length:
@@ -1937,7 +2171,7 @@ def _pad(text: str, length: int) -> str:
 
 async def build_auto_sync_embeds(guild: discord.Guild) -> list:
     """
-    Возвращает список из 2 эмбедов:
+    2 эмбеда:
       1) Таблица Discord | SteamID | Клан
       2) Чёрный — кто не сделал /link
     """
@@ -1988,13 +2222,11 @@ async def build_auto_sync_embeds(guild: discord.Guild) -> list:
 
     table_text = "\n".join(lines)
 
-    # Discord: максимум 4096 символов в description, но для codeblock лучше держать < 3900
     if len(table_text) > 3800:
         cut = table_text[:3800]
         cut = cut[:cut.rfind("\n")]
-        # Считаем сколько строк вошло
         shown = cut.count("\n")
-        remain = len(rows) - (shown - 1)  # -1 за заголовок
+        remain = len(rows) - (shown - 1)
         table_text = cut + f"\n..._и ещё {remain}_"
 
     embed_main = discord.Embed(
@@ -2005,7 +2237,7 @@ async def build_auto_sync_embeds(guild: discord.Guild) -> list:
     )
     embed_main.set_footer(text=f"Всего привязано: {len(rows)}")
 
-    # --- Эмбед 2: неавторизованные ---
+    # 2-й эмбед
     not_linked = [m for m in guild.members
                   if not m.bot and str(m.id) not in links]
     not_linked.sort(key=lambda m: m.display_name.lower())
@@ -2043,7 +2275,6 @@ async def auto_sync():
         if not links or guild is None:
             return
 
-        # --- Синхронизация ролей ---
         for did, sid in links.items():
             m = guild.get_member(int(did))
             if m is None:
@@ -2055,7 +2286,6 @@ async def auto_sync():
                 await log_error(bot, f"auto_sync:{did}", e)
             await asyncio.sleep(REQUEST_DELAY)
 
-        # --- Отчёт в канал (2 эмбеда) ---
         try:
             channel = bot.get_channel(LOG_CHANNEL_ID)
             if channel is not None:
