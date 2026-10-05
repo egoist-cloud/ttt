@@ -1,5 +1,5 @@
 """
-Quantum - бот клана (v11: без ИИ, логи в новый канал)
+Quantum - бот клана (v12: 2 эмбеда автосинхронизации, без ИИ)
 """
 import os
 import re
@@ -57,7 +57,6 @@ def log(msg: str):
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 GUILD_ID = int(os.getenv("GUILD_ID", "0"))
 
-# Логи теперь идут в 1511463623703265361 (раньше был 1418355322900189391)
 LOG_CHANNEL_ID = 1511463623703265361
 APPLICATION_LOGS_CHANNEL_ID = 1511463623703265361
 APPLICATIONS_CHANNEL_ID = 1511463623703265361
@@ -1922,6 +1921,119 @@ async def before_activity_tracker():
     await bot.wait_until_ready()
 
 
+# ============================================================
+# АВТОСИНХРОНИЗАЦИЯ + ОТЧЁТ В 2 ЭМБЕДА
+# ============================================================
+def _short(text: str, length: int) -> str:
+    if len(text) <= length:
+        return text
+    return text[:length - 1] + "…"
+
+
+def _pad(text: str, length: int) -> str:
+    text = _short(text, length)
+    return text + " " * (length - len(text))
+
+
+async def build_auto_sync_embeds(guild: discord.Guild) -> list:
+    """
+    Возвращает список из 2 эмбедов:
+      1) Таблица Discord | SteamID | Клан
+      2) Чёрный — кто не сделал /link
+    """
+    links = links_store.read()
+
+    rows = []
+    for did_str, sid in links.items():
+        try:
+            did = int(did_str)
+        except ValueError:
+            continue
+        member = guild.get_member(did)
+        if member is None:
+            continue
+
+        nick_cs2 = "-"
+        clan_name = "—"
+        try:
+            user = await api.cs2red_user(sid)
+            if user:
+                nick_cs2 = user.get("nick", "-")
+            clan = await api.player_clan(sid)
+            if clan:
+                clan_name = clan.get("clan_name", "—")
+        except Exception:
+            pass
+
+        rows.append((member.display_name, sid, nick_cs2, clan_name))
+
+    rows.sort(key=lambda x: (x[3], x[0].lower()))
+
+    W_DISC = 20
+    W_STEAM = 17
+    W_CLAN = 20
+
+    header = (
+        f"{_pad('Discord', W_DISC)} | "
+        f"{_pad('SteamID', W_STEAM)} | "
+        f"{_pad('Клан', W_CLAN)}"
+    )
+    divider = "-" * W_DISC + "-+-" + "-" * W_STEAM + "-+-" + "-" * W_CLAN
+
+    lines = [header, divider]
+    for disc, sid, nick_cs2, clan_name in rows:
+        lines.append(
+            f"{_pad(disc, W_DISC)} | {_pad(sid, W_STEAM)} | {_pad(clan_name, W_CLAN)}"
+        )
+
+    table_text = "\n".join(lines)
+
+    # Discord: максимум 4096 символов в description, но для codeblock лучше держать < 3900
+    if len(table_text) > 3800:
+        cut = table_text[:3800]
+        cut = cut[:cut.rfind("\n")]
+        # Считаем сколько строк вошло
+        shown = cut.count("\n")
+        remain = len(rows) - (shown - 1)  # -1 за заголовок
+        table_text = cut + f"\n..._и ещё {remain}_"
+
+    embed_main = discord.Embed(
+        title=f"⏰ Автосинхронизация — {utc_stamp()} UTC",
+        description=f"```\n{table_text}\n```",
+        color=0x57F287,
+        timestamp=now_utc(),
+    )
+    embed_main.set_footer(text=f"Всего привязано: {len(rows)}")
+
+    # --- Эмбед 2: неавторизованные ---
+    not_linked = [m for m in guild.members
+                  if not m.bot and str(m.id) not in links]
+    not_linked.sort(key=lambda m: m.display_name.lower())
+
+    if not_linked:
+        nl_lines = [f"• {_short(m.display_name, 30)} (`{m.id}`)"
+                    for m in not_linked[:100]]
+        nl_text = "\n".join(nl_lines)
+        if len(not_linked) > 100:
+            nl_text += f"\n..._и ещё {len(not_linked) - 100}_"
+        embed_notlinked = discord.Embed(
+            title="🚫 Не авторизованы через /link",
+            description=nl_text[:4000],
+            color=0x000000,
+            timestamp=now_utc(),
+        )
+        embed_notlinked.set_footer(text=f"Всего без /link: {len(not_linked)}")
+    else:
+        embed_notlinked = discord.Embed(
+            title="🚫 Не авторизованы через /link",
+            description="Все участники авторизованы ✅",
+            color=0x000000,
+            timestamp=now_utc(),
+        )
+
+    return [embed_main, embed_notlinked]
+
+
 @tasks.loop(minutes=SYNC_INTERVAL_MINUTES)
 async def auto_sync():
     try:
@@ -1930,20 +2042,28 @@ async def auto_sync():
         guild = bot.get_guild(GUILD_ID)
         if not links or guild is None:
             return
-        results = []
+
+        # --- Синхронизация ролей ---
         for did, sid in links.items():
             m = guild.get_member(int(did))
             if m is None:
                 continue
             try:
-                results.append(await sync_role_by_id(guild, m, sid))
-                results.append(await sync_clan_role_by_id(guild, m, sid))
+                await sync_role_by_id(guild, m, sid)
+                await sync_clan_role_by_id(guild, m, sid)
             except Exception as e:
                 await log_error(bot, f"auto_sync:{did}", e)
             await asyncio.sleep(REQUEST_DELAY)
-        changes = [r for r in results if r.startswith(("✅", "🔄", "👥"))]
-        if changes:
-            await log_to_channel(bot, "⏰ **Автосинхронизация**\n" + "\n".join(changes[:30]))
+
+        # --- Отчёт в канал (2 эмбеда) ---
+        try:
+            channel = bot.get_channel(LOG_CHANNEL_ID)
+            if channel is not None:
+                embeds = await build_auto_sync_embeds(guild)
+                await safe_send(channel, embeds=embeds)
+        except Exception as e:
+            await log_error(bot, "auto_sync.report", e)
+
     except Exception as e:
         await log_error(bot, "auto_sync", e)
 
@@ -1953,6 +2073,15 @@ async def auto_sync_error(err):
     await log_error(bot, "auto_sync.error", err)
 
 
+@auto_sync.before_loop
+async def before_auto_sync():
+    await bot.wait_until_ready()
+    await asyncio.sleep(random.randint(0, 120))
+
+
+# ============================================================
+# ПРОВЕРКА БАНОВ
+# ============================================================
 @tasks.loop(hours=BAN_CHECK_INTERVAL_HOURS)
 async def ban_check():
     try:
@@ -1972,6 +2101,9 @@ async def ban_check_error(err):
     await log_error(bot, "ban_check.error", err)
 
 
+# ============================================================
+# ПРОВЕРКА МУТОВ
+# ============================================================
 @tasks.loop(hours=MUTE_CHECK_INTERVAL_HOURS)
 async def mute_check():
     try:
@@ -2012,12 +2144,6 @@ async def before_mute_check():
 
 ban_check.before_loop(before_ban_check)
 mute_check.before_loop(before_mute_check)
-
-
-@auto_sync.before_loop
-async def before_auto_sync():
-    await bot.wait_until_ready()
-    await asyncio.sleep(random.randint(0, 120))
 
 
 # ============================================================
