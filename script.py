@@ -1,5 +1,5 @@
 """
-Quantum - бот клана (v14: исправлена ошибка размера эмбедов автосинхронизации)
+Quantum - бот клана (v15: глобальный таймаут + фикс размера эмбедов)
 """
 import os
 import re
@@ -88,6 +88,9 @@ ACTIVITY_MIN_HOURS = 8
 APPLY_EMBED_COLOR = 0x2B2D31
 
 BOT_START_TIME = time.time()
+
+# Глобальный таймаут для команд, делающих API-запросы
+CMD_API_TIMEOUT = 30.0
 
 CS2RED_COOKIES = {k: v for k, v in {
     "token": os.getenv("CS2RED_TOKEN", ""),
@@ -277,6 +280,37 @@ async def safe_send(target, *args, retries: int = 3, **kwargs):
 
 
 # ============================================================
+# ГЛОБАЛЬНЫЙ ТАЙМАУТ ДЛЯ API-ЗАПРОСОВ В КОМАНДАХ
+# ============================================================
+async def run_with_timeout(coro, timeout: float, fallback_msg: str,
+                           interaction: discord.Interaction,
+                           context: str = ""):
+    """
+    Ждёт coro не дольше timeout секунд.
+    - Таймаут   → логирует и шлёт fallback_msg пользователю
+    - Exception → логирует и шлёт «❌ Ошибка: ...»
+    Возвращает результат coro или None.
+    """
+    try:
+        return await asyncio.wait_for(coro, timeout=timeout)
+    except asyncio.TimeoutError:
+        await log_error(bot, context or "run_with_timeout", "TIMEOUT")
+        try:
+            await safe_send(interaction.followup, fallback_msg, ephemeral=True)
+        except Exception:
+            pass
+        return None
+    except Exception as e:
+        await log_error(bot, context or "run_with_timeout", e)
+        try:
+            await safe_send(interaction.followup,
+                            f"❌ Ошибка: {str(e)[:200]}", ephemeral=True)
+        except Exception:
+            pass
+        return None
+
+
+# ============================================================
 # API: cs2red / Steam
 # ============================================================
 class API:
@@ -294,7 +328,7 @@ class API:
         self.session = aiohttp.ClientSession(
             headers=CS2RED_HEADERS,
             cookies=CS2RED_COOKIES or None,
-            timeout=aiohttp.ClientTimeout(total=25, connect=15),
+            timeout=aiohttp.ClientTimeout(total=20, connect=10),
             connector=connector,
         )
         log(f"🌐 API session. Cookies: {len(CS2RED_COOKIES)}, Headers: {len(CS2RED_HEADERS)}")
@@ -306,7 +340,7 @@ class API:
     async def _get_json(self, url, params=None):
         if not self.session:
             return None
-        for attempt in range(3):
+        for attempt in range(2):
             try:
                 async with self.sem:
                     async with self.session.get(url, params=params) as r:
@@ -315,13 +349,13 @@ class API:
                             log(f"🔴 403 на {url}")
                             return None
                         if r.status == 429:
-                            await asyncio.sleep(3)
+                            await asyncio.sleep(2)
                             continue
                         r.raise_for_status()
                         return await r.json(content_type=None)
             except NET_ERRORS as e:
-                if attempt < 2:
-                    await asyncio.sleep(2 ** attempt)
+                if attempt < 1:
+                    await asyncio.sleep(1.5)
                     continue
                 log(f"⚠️ GET {url}: сетевой сбой: {e}")
                 return None
@@ -333,7 +367,7 @@ class API:
     async def _get_html(self, url):
         if not self.session:
             return None
-        for attempt in range(3):
+        for attempt in range(2):
             try:
                 async with self.sem:
                     async with self.session.get(url) as r:
@@ -346,8 +380,8 @@ class API:
                             return None
                         return await r.text()
             except NET_ERRORS as e:
-                if attempt < 2:
-                    await asyncio.sleep(2 ** attempt)
+                if attempt < 1:
+                    await asyncio.sleep(1.5)
                     continue
                 log(f"⚠️ GET {url}: сетевой сбой: {e}")
                 return None
@@ -360,14 +394,18 @@ class API:
         data = await self._get_json(
             "https://cs2red.ru/api/admin/users",
             params={"begin": 0, "count": 1, "search": steam_id})
-        if not data or not data.get("success"):
+        if data is None:
+            return None
+        if not data.get("success"):
             return None
         users = data.get("users") or []
-        return users[0] if users else None
+        if not users:
+            return {"_not_found": True, "nick": None, "roleId": None}
+        return users[0]
 
     async def cs2red_full_user(self, steam_id: str):
         user = await self.cs2red_user(steam_id)
-        if not user or not user.get("id"):
+        if not user or user.get("_not_found") or not user.get("id"):
             return None
         data = await self._get_json(
             "https://cs2red.ru/api/admin/user",
@@ -381,16 +419,21 @@ class API:
         if self._clans_cache["data"] is not None and ts - self._clans_cache["ts"] < CLANS_CACHE_TTL:
             return self._clans_cache["data"]
         data = await self._get_json("https://cs2red.ru/api/clans")
-        clans = (data or {}).get("clans") or []
+        if data is None:
+            return None
+        clans = data.get("clans") or []
         self._clans_cache = {"ts": ts, "data": clans}
         return clans
 
     async def player_clan(self, steam_id: str):
         user = await self.cs2red_user(steam_id)
-        if not user or not user.get("id"):
+        if not user or user.get("_not_found") or not user.get("id"):
             return None
         uid = int(user["id"])
-        for clan in await self.cs2red_clans():
+        clans = await self.cs2red_clans()
+        if clans is None:
+            return None
+        for clan in clans:
             for m in (clan.get("members") or []):
                 if int(m.get("userId", 0) or 0) == uid:
                     return {"clan_id": clan.get("id"), "clan_name": clan.get("name"),
@@ -607,7 +650,7 @@ async def build_player_profile(guild, discord_id, steam_id=None):
         return profile
     profile["steamid64"] = steam_id
     user = await api.cs2red_user(steam_id)
-    if user:
+    if user and not user.get("_not_found"):
         profile["cs2red_nick"] = user.get("nick", "-")
         profile["cs2red_role_id"] = user.get("roleId")
         profile["cs2red_role_name"] = role_display_name(user.get("roleId"))
@@ -723,8 +766,10 @@ async def sync_role_by_id(guild, member, steam_id):
     user = await api.cs2red_user(steam_id)
     if user is None:
         return f"⚠️ {member.display_name}: cs2red не ответил, роль не тронута"
-
-    tn = ROLE_MAP.get(user.get("roleId"))
+    if user.get("_not_found"):
+        tn = None
+    else:
+        tn = ROLE_MAP.get(user.get("roleId"))
     managed = {n for n in ROLE_MAP.values() if n}
     cur = {r for r in member.roles if r.name in managed}
 
@@ -760,11 +805,10 @@ async def sync_clan_role_by_id(guild, member, steam_id):
     if user is None:
         return f"⚠️ {member.display_name}: cs2red не ответил, роли не тронуты"
 
-    clans_raw = await api._get_json("https://cs2red.ru/api/clans")
-    if not clans_raw or not clans_raw.get("success"):
+    clans = await api.cs2red_clans()
+    if clans is None:
         return f"⚠️ {member.display_name}: /api/clans не ответил, роли не тронуты"
 
-    clans = clans_raw.get("clans") or []
     if not clans:
         return f"⚠️ {member.display_name}: /api/clans пусто, роли не тронуты"
 
@@ -1281,13 +1325,20 @@ async def link(i, steam_id: str):
     if owner and int(owner) != i.user.id:
         await safe_send(i.followup, "❌ SteamID занят.", ephemeral=True)
         return
-    u = await api.cs2red_user(steam_id)
+
+    u = await run_with_timeout(
+        api.cs2red_user(steam_id),
+        timeout=CMD_API_TIMEOUT,
+        fallback_msg="⚠️ cs2red не ответил за 30 сек. Попробуй позже или проверь `/health`.",
+        interaction=i,
+        context="/link",
+    )
     if u is None:
-        await safe_send(i.followup,
-            f"❌ Игрок `{steam_id}` не найден на cs2red. "
-            f"Проверь: SteamID правильный? Cookies живые?",
-            ephemeral=True)
         return
+    if u.get("_not_found"):
+        await safe_send(i.followup, f"❌ Игрок `{steam_id}` не найден на cs2red.", ephemeral=True)
+        return
+
     await links_store.update(lambda d: d.update({str(i.user.id): steam_id}))
     await safe_send(i.followup,
         f"✅ Привязано: `{steam_id}` (ник **{u.get('nick', '-')}**)", ephemeral=True)
@@ -1503,7 +1554,7 @@ async def link_all(i):
             continue
 
         user = await api.cs2red_user(sid)
-        if user is None:
+        if user is None or user.get("_not_found"):
             not_on_site.append(f"{m.display_name}: `{sid}`")
             processed += 1
             continue
@@ -1578,7 +1629,17 @@ async def export_members(i):
 async def player_info(i, member: discord.Member):
     await i.response.defer(ephemeral=True)
     try:
-        profile = await build_player_profile(i.guild, member.id)
+        profile = await run_with_timeout(
+            build_player_profile(i.guild, member.id),
+            timeout=CMD_API_TIMEOUT,
+            fallback_msg="⏱ Сбор профиля занял больше 30 сек. "
+                         "Скорее всего cs2red или Steam не отвечают. "
+                         "Попробуй `/health` — проверить состояние API.",
+            interaction=i,
+            context="/player_info",
+        )
+        if profile is None:
+            return
         if not profile.get("steamid64"):
             await safe_send(i.followup, "❌ Нет SteamID", ephemeral=True)
             return
@@ -1650,9 +1711,17 @@ async def lookup(i, member: discord.Member):
     if not sid:
         await safe_send(i.followup, "❌ Не привязан", ephemeral=True)
         return
-    u = await api.cs2red_user(sid)
-    nick = u.get("nick", "-") if u else "-"
-    rid = u.get("roleId") if u else None
+    u = await run_with_timeout(
+        api.cs2red_user(sid),
+        timeout=CMD_API_TIMEOUT,
+        fallback_msg="⚠️ cs2red не ответил за 30 сек.",
+        interaction=i,
+        context="/lookup",
+    )
+    if u is None:
+        return
+    nick = u.get("nick", "-") if u and not u.get("_not_found") else "-"
+    rid = u.get("roleId") if u and not u.get("_not_found") else None
     clan = await api.player_clan(sid)
     ct = f" (клан: {clan['clan_name']})" if clan else " (без клана)"
     await safe_send(i.followup,
@@ -2178,7 +2247,7 @@ async def build_auto_sync_embeds(guild: discord.Guild) -> list:
         clan_name = "—"
         try:
             user = await api.cs2red_user(sid)
-            if user:
+            if user and not user.get("_not_found"):
                 nick_cs2 = user.get("nick", "-")
             clan = await api.player_clan(sid)
             if clan:
