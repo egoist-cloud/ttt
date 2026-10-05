@@ -1,5 +1,5 @@
 """
-Quantum - бот клана (v16: гарантированное закрытие interaction во всех командах)
+Quantum - бот клана (v17: убраны BAN/MUTE, обновлён !setup)
 """
 import os
 import re
@@ -75,8 +75,8 @@ AUTO_ROLE_ID = int(os.getenv("AUTO_ROLE_ID", "0"))
 BYPASS_ROLE_ID = int(os.getenv("BYPASS_ROLE_ID", "0"))
 NO_COOLDOWN_ROLE_ID = int(os.getenv("NO_COOLDOWN_ROLE_ID", "0"))
 
-BANNED_ROLE_ID = int(os.getenv("BANNED_ROLE_ID", "0"))
-MUTED_ROLE_ID = int(os.getenv("MUTED_ROLE_ID", "0"))
+# BANNED_ROLE_ID и MUTED_ROLE_ID убраны — баны/муты больше не проверяются
+
 ACTIVITY_ROLE_ID = int(os.getenv("ACTIVITY_ROLE_ID", "0"))
 
 CLAN_NAME = os.getenv("CLAN_NAME", "TALENT")
@@ -89,7 +89,6 @@ APPLY_EMBED_COLOR = 0x2B2D31
 
 BOT_START_TIME = time.time()
 
-# Глобальный таймаут для команд, делающих API-запросы
 CMD_API_TIMEOUT = 30.0
 
 CS2RED_COOKIES = {k: v for k, v in {
@@ -147,8 +146,6 @@ CLAN_ROLE_MAP = {
 }
 
 SYNC_INTERVAL_MINUTES = int(os.getenv("SYNC_INTERVAL_MINUTES", "15"))
-BAN_CHECK_INTERVAL_HOURS = 24
-MUTE_CHECK_INTERVAL_HOURS = 2
 REQUEST_DELAY = 0.3
 
 ACTIVITY_TRACK_SECONDS = 300
@@ -242,23 +239,25 @@ async def log_error(bot: commands.Bot, context: str, exc):
         log(f"⚠️ не смог отправить лог: {e}")
 
 
-_send_semaphore = asyncio.Semaphore(5)
+_send_semaphore = asyncio.Semaphore(2)
 _send_timestamps = deque()
 
 
 async def _rate_limit_send():
+    """Глобальный rate-limit: не более 3 сообщений в секунду (защита от Cloudflare)."""
     async with _send_semaphore:
         now = time.time()
         while _send_timestamps and now - _send_timestamps[0] > 1.0:
             _send_timestamps.popleft()
-        if len(_send_timestamps) >= 5:
+        if len(_send_timestamps) >= 3:
             wait = 1.0 - (now - _send_timestamps[0])
             if wait > 0:
                 await asyncio.sleep(wait)
         _send_timestamps.append(time.time())
 
 
-async def safe_send(target, *args, retries: int = 3, **kwargs):
+async def safe_send(target, *args, retries: int = 5, **kwargs):
+    """Отправка с retry. Уважает Discord 429 и Cloudflare 429."""
     await _rate_limit_send()
     last_exc = None
     for attempt in range(retries):
@@ -267,10 +266,24 @@ async def safe_send(target, *args, retries: int = 3, **kwargs):
         except discord.HTTPException as e:
             last_exc = e
             if e.status == 429:
-                wait = getattr(e, "retry_after", None) or 5.0
-                log(f"⏱ 429, жду {wait:.1f} сек (попытка {attempt + 1}/{retries})")
-                await asyncio.sleep(wait + 0.5)
+                is_cloudflare = False
+                try:
+                    body = await e.response.text()
+                    if "cloudflare" in body.lower() or "access denied" in body.lower():
+                        is_cloudflare = True
+                except Exception:
+                    pass
+
+                if is_cloudflare:
+                    wait = 60.0
+                    log(f"🛡 Cloudflare 429 — жду {wait:.0f} сек (попытка {attempt + 1}/{retries})")
+                else:
+                    wait = getattr(e, "retry_after", None) or 5.0
+                    log(f"⏱ Discord 429 — жду {wait:.1f} сек (попытка {attempt + 1}/{retries})")
+
+                await asyncio.sleep(wait)
                 continue
+
             if e.status >= 500 and attempt < retries - 1:
                 await asyncio.sleep(3)
                 continue
@@ -284,18 +297,12 @@ async def safe_send(target, *args, retries: int = 3, **kwargs):
 # ============================================================
 async def close_interaction(interaction: discord.Interaction, text: str = None,
                             ephemeral: bool = False):
-    """
-    Гарантированно закрывает interaction: если response ещё не отправлен — defer,
-    потом followup.send. Если defer уже был — просто followup.send.
-    Никогда не падает с 10062.
-    """
     try:
         if not interaction.response.is_done():
             await interaction.response.defer(ephemeral=ephemeral, thinking=False)
         if text:
             await interaction.followup.send(text, ephemeral=ephemeral)
     except discord.NotFound:
-        # interaction уже истёк — ничего не сделать
         pass
     except discord.HTTPException as e:
         log(f"⚠️ close_interaction: {e}")
@@ -304,12 +311,6 @@ async def close_interaction(interaction: discord.Interaction, text: str = None,
 async def run_with_timeout(coro, timeout: float, fallback_msg: str,
                            interaction: discord.Interaction,
                            context: str = ""):
-    """
-    Ждёт coro не дольше timeout секунд.
-    - Таймаут   → логирует и шлёт fallback_msg пользователю
-    - Exception → логирует и шлёт «❌ Ошибка: ...»
-    Возвращает результат coro или None.
-    """
     try:
         return await asyncio.wait_for(coro, timeout=timeout)
     except asyncio.TimeoutError:
@@ -365,32 +366,6 @@ class API:
                             continue
                         r.raise_for_status()
                         return await r.json(content_type=None)
-            except NET_ERRORS as e:
-                if attempt < 1:
-                    await asyncio.sleep(1.5)
-                    continue
-                log(f"⚠️ GET {url}: сетевой сбой: {e}")
-                return None
-            except Exception as e:
-                log(f"⚠️ GET {url}: {e}")
-                return None
-        return None
-
-    async def _get_html(self, url):
-        if not self.session:
-            return None
-        for attempt in range(2):
-            try:
-                async with self.sem:
-                    async with self.session.get(url) as r:
-                        self.last_status = r.status
-                        if r.status == 403:
-                            log(f"🔴 403 на {url}")
-                            return None
-                        if r.status != 200:
-                            log(f"⚠️ GET {url}: {r.status}")
-                            return None
-                        return await r.text()
             except NET_ERRORS as e:
                 if attempt < 1:
                     await asyncio.sleep(1.5)
@@ -497,32 +472,6 @@ class API:
 
 
 api = API()
-
-
-# ============================================================
-# ПАРСИНГ CS2RED (bans/mutes)
-# ============================================================
-async def check_punishment_via_html(steam_id: str, kind: str) -> bool:
-    category = "MUTES" if kind == "mutes" else "BANS"
-    html = await api._get_html(f"https://cs2red.ru/bans?category={category}")
-    if not html:
-        return False
-    soup = BeautifulSoup(html, "html.parser")
-    link = soup.find("a", href=f"/profile/{steam_id}")
-    if not link:
-        return False
-    row = link
-    for _ in range(10):
-        row = row.parent
-        if row is None:
-            break
-        cls = row.get("class") or []
-        if "self-stretch" in cls and "h-16" in cls:
-            break
-    if row is None:
-        return False
-    txt = row.get_text(" ", strip=True)
-    return not any(w in txt for w in ("Размучен", "Разбанен", "Снят"))
 
 
 # ============================================================
@@ -867,46 +816,6 @@ async def sync_clan_role_by_id(guild, member, steam_id):
 
 
 # ============================================================
-# БАНЫ / МУТЫ
-# ============================================================
-PUNISHMENTS = {
-    "ban": {"endpoint": "bans", "role_id": BANNED_ROLE_ID, "emoji": "🔨", "word": "Бан"},
-    "mute": {"endpoint": "mutes", "role_id": MUTED_ROLE_ID, "emoji": "🔇", "word": "Мут"},
-}
-
-
-async def check_punishment_roles(bot, guild, kind):
-    cfg = PUNISHMENTS[kind]
-    role = guild.get_role(cfg["role_id"]) if cfg["role_id"] else None
-    if role is None:
-        return [f"❌ Роль {cfg['role_id']} не найдена"]
-    links = links_store.read()
-    actions = []
-    log(f"{cfg['emoji']} Проверка {kind} ({len(links)} игроков)...")
-    for did, sid in list(links.items()):
-        m = guild.get_member(int(did))
-        if m is None:
-            continue
-        punished = await check_punishment_via_html(sid, cfg["endpoint"])
-        has = role in m.roles
-        if punished == has:
-            continue
-        try:
-            if punished:
-                await m.add_roles(role, reason=f"{cfg['word']} cs2red.ru")
-                actions.append(f"{cfg['emoji']} + {m.display_name}")
-            else:
-                await m.remove_roles(role, reason=f"Снятие {cfg['word']}")
-                actions.append(f"✅ − {m.display_name}")
-            await log_to_applications(bot,
-                f"{cfg['emoji']} **{cfg['word']}** {m.mention}\n🕒 {utc_stamp()}")
-        except discord.Forbidden:
-            actions.append(f"❌ нет прав для {m.display_name}")
-        await asyncio.sleep(REQUEST_DELAY)
-    return actions
-
-
-# ============================================================
 # ВЕТКИ ЗАЯВОК
 # ============================================================
 async def close_application_thread(thread, closed_by, reason):
@@ -1113,8 +1022,8 @@ class TempBanModal(discord.ui.Modal, title="Запрет"):
         until = (now_utc() + datetime.timedelta(hours=hours)).isoformat()
         await bans_store.update(lambda d: d.update({str(self.tid): {
             "type": "temp", "until": until, "reason": self.reason.value.strip() or "-"}}))
-        await i.response.send_message(f"🚫 <@{self.tid}> запрет на {hours} ч.")
-        await log_to_channel(i.client, f"🚫 temp <@{self.tid}> {hours}ч от {i.user.mention}")
+        await i.response.send_message(f"🚫 <@{self.tid}> запрет на {hours} часов.")
+        await log_to_channel(i.client, f"🚫 tempban <@{self.tid}> {hours}ч от {i.user.mention}")
 
 # ============================================================
 # МОДАЛЬНОЕ ОКНО ЗАЯВКИ
@@ -1175,7 +1084,6 @@ class QuestionnaireModal(discord.ui.Modal, title="Заявка в клан"):
             except Exception as ex:
                 log(f"⚠️ Канал заявок: {ex}")
 
-        # Закрываем interaction
         await i.followup.send("✅ Ваша заявка отправлена на рассмотрение!", ephemeral=True)
         asyncio.create_task(_create_application_thread(i, e))
 
@@ -1272,10 +1180,8 @@ class MyBot(commands.Bot):
             log("✅ ApplicationManagement view добавлен")
 
             auto_sync.start()
-            ban_check.start()
-            mute_check.start()
             activity_tracker.start()
-            log("✅ Все 4 фоновых задачи запущены")
+            log("✅ Все 2 фоновых задачи запущены")
         except Exception as e:
             log(f"❌ ОШИБКА в setup_hook: {type(e).__name__}: {e}")
             traceback.print_exc()
@@ -1440,78 +1346,6 @@ async def linked_member_autocomplete(i, current):
         if len(ch) >= 25:
             break
     return ch
-
-
-async def _check_single_punishment(i, m, kind):
-    cfg = PUNISHMENTS[kind]
-    role = i.guild.get_role(cfg["role_id"]) if cfg["role_id"] else None
-    if role is None:
-        await i.followup.send(f"❌ Роль {cfg['role_id']} не найдена", ephemeral=False)
-        return
-    sid = links_store.read().get(str(m.id))
-    if not sid:
-        await i.followup.send(f"❌ {m.mention} не привязан", ephemeral=False)
-        return
-    punished = await check_punishment_via_html(sid, "bans" if kind == "ban" else "mutes")
-    has = role in m.roles
-    if punished == has:
-        await i.followup.send(
-            f"ℹ️ {m.display_name}: {'уже имеет роль' if has else 'чист'}",
-            ephemeral=False
-        )
-        return
-    try:
-        if punished:
-            await m.add_roles(role, reason=f"{cfg['word']} cs2red.ru")
-            result = f"{cfg['emoji']} выдан"
-        else:
-            await m.remove_roles(role, reason=f"Снятие {cfg['word']}")
-            result = "✅ снят"
-        await i.followup.send(
-            f"**{cfg['word']} - {m.display_name}**\nSteamID: `{sid}`\n"
-            f"Активно: **{'да' if punished else 'нет'}**\n{result}",
-            ephemeral=False
-        )
-        await log_to_applications(i.client,
-            f"{cfg['emoji']} {cfg['word']} {m.mention} от {i.user.mention}")
-    except discord.Forbidden:
-        await i.followup.send("❌ нет прав", ephemeral=False)
-
-
-@bot.tree.command(name="check_bans", description="Проверить баны игрока")
-@app_commands.autocomplete(member=linked_member_autocomplete)
-async def check_bans(i, member: str):
-    if not await _admin_guard(i):
-        return
-    await i.response.defer(ephemeral=False)
-    try:
-        mid = int(member)
-    except ValueError:
-        await i.followup.send("❌ Некорректно", ephemeral=False)
-        return
-    t = i.guild.get_member(mid)
-    if t is None:
-        await i.followup.send("❌ Не найден", ephemeral=False)
-        return
-    await _check_single_punishment(i, t, "ban")
-
-
-@bot.tree.command(name="check_mutes", description="Проверить муты игрока")
-@app_commands.autocomplete(member=linked_member_autocomplete)
-async def check_mutes(i, member: str):
-    if not await _admin_guard(i):
-        return
-    await i.response.defer(ephemeral=False)
-    try:
-        mid = int(member)
-    except ValueError:
-        await i.followup.send("❌ Некорректно", ephemeral=False)
-        return
-    t = i.guild.get_member(mid)
-    if t is None:
-        await i.followup.send("❌ Не найден", ephemeral=False)
-        return
-    await _check_single_punishment(i, t, "mute")
 
 
 # ============================================================
@@ -1706,7 +1540,6 @@ async def player_info(i, member: discord.Member):
 
         await send_player_report(i.client, profile)
 
-        # ГЛАВНОЕ: закрываем interaction — иначе "думает..." висит вечно
         await i.followup.send(
             f"✅ Профиль **{member.display_name}** отправлен в <#{DB_CHANNEL_ID}>.",
             ephemeral=False
@@ -1964,8 +1797,6 @@ async def health(i: discord.Interaction):
 
     for name, task_obj, interval in [
         ("auto_sync", auto_sync, f"{SYNC_INTERVAL_MINUTES} мин"),
-        ("ban_check", ban_check, f"{BAN_CHECK_INTERVAL_HOURS} ч"),
-        ("mute_check", mute_check, f"{MUTE_CHECK_INTERVAL_HOURS} ч"),
         ("activity_tracker", activity_tracker, f"{ACTIVITY_TRACK_SECONDS // 60} мин"),
     ]:
         if task_obj.is_running():
@@ -2223,7 +2054,7 @@ async def activity_all(i):
 
 
 # ============================================================
-# !setup
+# !setup — обновлённый текст заявки
 # ============================================================
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -2232,19 +2063,32 @@ async def setup(ctx):
         await ctx.message.delete()
     except Exception:
         pass
-    e = discord.Embed(title="Условия вступления", color=0x36393F)
-    e.description = ("**Общие требования:**\n• Нет VAC / блокировок cs2red\n"
-                     "• Нет других кланов\n• Возраст от 12\n\n"
-                     f"**Для {CLAN_NAME}:**\n• Рейтинг от 1.000 ммр\n• Онлайн ≥ 3 ч/день\n\n"
-                     "**Важно:** Если не напишут за 7 дней — отказ.\n"
-                     "После принятия 2 дня на вступление.")
+    e = discord.Embed(title="Официальные условия вступления в клан.",
+                      color=0x36393F)
+    e.description = (
+        "Перед подачей заявки внимательно ознакомьтесь с нашими требованиями.\n"
+        "**Несоответствие любому из пунктов приведёт к отказу.**\n\n"
+        "**Общие требования:**\n"
+        "• Отсутствие VAC-банов в Steam и блокировок на cs2red.ru.\n"
+        "• Отсутствие членства в других кланах.\n"
+        "• Возраст — **от 12 лет**.\n\n"
+        f"**Требования для {CLAN_NAME}:**\n"
+        "• Рейтинг — **от 1.000 ммр**.\n"
+        "• Онлайн — **не менее 3 часов в день**.\n\n"
+        "**Что указать в заявке:**\n"
+        "• Steam-профиль (ссылку или SteamID64)\n\n"
+        "**Важно!**\n"
+        "Если вам не напишут в течение 7 дней — заявка отклоняется.\n"
+        "После принятия есть **2 дня** на вступление.\n\n"
+        "По вопросам вступления: обратитесь к администрации."
+    )
     v = ClanView()
     v.add_item(discord.ui.Button(label=CLAN_NAME, url=CLAN_URL, row=1))
     await safe_send(ctx.channel, embed=e, view=v)
 
 
 # ============================================================
-# ФОНОВЫЕ ЗАДАЧИ
+# ФОНОВАЯ ЗАДАЧА: ТРЕКЕР АКТИВНОСТИ
 # ============================================================
 @tasks.loop(seconds=ACTIVITY_TRACK_SECONDS)
 async def activity_tracker():
@@ -2462,73 +2306,6 @@ async def auto_sync_error(err):
 async def before_auto_sync():
     await bot.wait_until_ready()
     await asyncio.sleep(random.randint(0, 120))
-
-
-# ============================================================
-# ПРОВЕРКА БАНОВ
-# ============================================================
-@tasks.loop(hours=BAN_CHECK_INTERVAL_HOURS)
-async def ban_check():
-    try:
-        log(f"🔨 ban_check {now_utc().isoformat()}")
-        g = bot.get_guild(GUILD_ID)
-        if g is None:
-            return
-        a = await check_punishment_roles(bot, g, "ban")
-        if a:
-            await log_to_channel(bot, "🔨 **Баны:**\n" + "\n".join(a))
-    except Exception as e:
-        await log_error(bot, "ban_check", e)
-
-
-@ban_check.error
-async def ban_check_error(err):
-    await log_error(bot, "ban_check.error", err)
-
-
-# ============================================================
-# ПРОВЕРКА МУТОВ
-# ============================================================
-@tasks.loop(hours=MUTE_CHECK_INTERVAL_HOURS)
-async def mute_check():
-    try:
-        log(f"🔇 mute_check {now_utc().isoformat()}")
-        g = bot.get_guild(GUILD_ID)
-        if g is None:
-            return
-        a = await check_punishment_roles(bot, g, "mute")
-        if a:
-            await log_to_channel(bot, "🔇 **Муты:**\n" + "\n".join(a))
-    except Exception as e:
-        await log_error(bot, "mute_check", e)
-
-
-@mute_check.error
-async def mute_check_error(err):
-    await log_error(bot, "mute_check.error", err)
-
-
-async def _align_to_half_hour(minutes):
-    await bot.wait_until_ready()
-    now = now_utc()
-    tm = 0 if minutes == 0 else 30
-    target = now.replace(minute=tm, second=0, microsecond=0) if now.minute < tm \
-        else (now + datetime.timedelta(hours=1)).replace(minute=tm, second=0, microsecond=0)
-    w = (target - now).total_seconds()
-    if w > 0:
-        await asyncio.sleep(w)
-
-
-async def before_ban_check():
-    await _align_to_half_hour(0)
-
-
-async def before_mute_check():
-    await _align_to_half_hour(30)
-
-
-ban_check.before_loop(before_ban_check)
-mute_check.before_loop(before_mute_check)
 
 
 # ============================================================
