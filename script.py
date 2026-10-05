@@ -1,5 +1,5 @@
 """
-Quantum - бот клана (v17: убраны BAN/MUTE, обновлён !setup)
+Quantum - бот клана (v18: исправлен Cloudflare 429, все safe_send)
 """
 import os
 import re
@@ -75,9 +75,7 @@ AUTO_ROLE_ID = int(os.getenv("AUTO_ROLE_ID", "0"))
 BYPASS_ROLE_ID = int(os.getenv("BYPASS_ROLE_ID", "0"))
 NO_COOLDOWN_ROLE_ID = int(os.getenv("NO_COOLDOWN_ROLE_ID", "0"))
 
-# BANNED_ROLE_ID и MUTED_ROLE_ID убраны — баны/муты больше не проверяются
-
-ACTIVITY_ROLE_ID = int(os.getenv("ACTIVITY_ROLE_ID", "0"))
+ACTIVITY_ROLE_ID = int(os.getenv("ACTIVITY_ROLE_ID", "1448368118190837800"))
 
 CLAN_NAME = os.getenv("CLAN_NAME", "TALENT")
 CLAN_URL = os.getenv("CLAN_URL", "https://cs2red.ru/clans/id/47")
@@ -239,12 +237,15 @@ async def log_error(bot: commands.Bot, context: str, exc):
         log(f"⚠️ не смог отправить лог: {e}")
 
 
+# ============================================================
+# ЗАЩИТА ОТ ФЛУДА (Cloudflare + Discord 429)
+# ============================================================
 _send_semaphore = asyncio.Semaphore(2)
 _send_timestamps = deque()
 
 
 async def _rate_limit_send():
-    """Глобальный rate-limit: не более 3 сообщений в секунду (защита от Cloudflare)."""
+    """Глобальный rate-limit: не более 3 сообщений в секунду."""
     async with _send_semaphore:
         now = time.time()
         while _send_timestamps and now - _send_timestamps[0] > 1.0:
@@ -257,7 +258,11 @@ async def _rate_limit_send():
 
 
 async def safe_send(target, *args, retries: int = 5, **kwargs):
-    """Отправка с retry. Уважает Discord 429 и Cloudflare 429."""
+    """
+    Отправка с retry. Уважает:
+    - Discord 429 (rate-limit) — ждёт retry_after
+    - Cloudflare 429 (HTML-заглушка) — ждёт 90 секунд
+    """
     await _rate_limit_send()
     last_exc = None
     for attempt in range(retries):
@@ -275,7 +280,7 @@ async def safe_send(target, *args, retries: int = 5, **kwargs):
                     pass
 
                 if is_cloudflare:
-                    wait = 60.0
+                    wait = 90.0
                     log(f"🛡 Cloudflare 429 — жду {wait:.0f} сек (попытка {attempt + 1}/{retries})")
                 else:
                     wait = getattr(e, "retry_after", None) or 5.0
@@ -301,7 +306,7 @@ async def close_interaction(interaction: discord.Interaction, text: str = None,
         if not interaction.response.is_done():
             await interaction.response.defer(ephemeral=ephemeral, thinking=False)
         if text:
-            await interaction.followup.send(text, ephemeral=ephemeral)
+            await safe_send(interaction.followup, text, ephemeral=ephemeral)
     except discord.NotFound:
         pass
     except discord.HTTPException as e:
@@ -860,11 +865,11 @@ async def _save_votes(mid, st):
 async def _vote(interaction, kind):
     await interaction.response.defer()
     if not user_can_review(interaction.user):
-        await interaction.followup.send("❌ Нет прав.", ephemeral=True)
+        await safe_send(interaction.followup, "❌ Нет прав.", ephemeral=True)
         return
     st = _get_votes(interaction.message.id)
     if interaction.user.id in st["voters"] and not user_can_spam_vote(interaction.user):
-        await interaction.followup.send("Вы уже голосовали.", ephemeral=True)
+        await safe_send(interaction.followup, "Вы уже голосовали.", ephemeral=True)
         return
     st[kind] += 1
     if interaction.user.id not in st["voters"]:
@@ -928,9 +933,9 @@ class ApplicationManagement(discord.ui.View):
     async def take(self, i, b):
         await i.response.defer()
         if not user_can_review(i.user):
-            await i.followup.send("❌", ephemeral=True)
+            await safe_send(i.followup, "❌", ephemeral=True)
             return
-        await i.followup.send(f"🙋 Взял {i.user.mention}.")
+        await safe_send(i.followup, f"🙋 Взял {i.user.mention}.")
         b.disabled = True
         try:
             await i.message.edit(view=self)
@@ -964,15 +969,15 @@ class ApplicationManagement(discord.ui.View):
     async def perm_ban(self, i, b):
         await i.response.defer()
         if not user_can_review(i.user):
-            await i.followup.send("❌", ephemeral=True)
+            await safe_send(i.followup, "❌", ephemeral=True)
             return
         tid = extract_discord_id_from_embed(i.message.embeds[0])
         if not tid:
-            await i.followup.send("❌", ephemeral=True)
+            await safe_send(i.followup, "❌", ephemeral=True)
             return
         await bans_store.update(lambda d: d.update({str(tid): {
             "type": "perm", "until": None, "reason": f"Выдал {i.user}"}}))
-        await i.followup.send(f"⛔ <@{tid}> перм. запрет")
+        await safe_send(i.followup, f"⛔ <@{tid}> перм. запрет")
         await log_to_channel(i.client, f"⛔ perm <@{tid}> от {i.user.mention}")
 
     @discord.ui.button(label="✅ Снять запрет", style=discord.ButtonStyle.success,
@@ -980,14 +985,14 @@ class ApplicationManagement(discord.ui.View):
     async def unban(self, i, b):
         await i.response.defer()
         if not user_can_review(i.user):
-            await i.followup.send("❌", ephemeral=True)
+            await safe_send(i.followup, "❌", ephemeral=True)
             return
         tid = extract_discord_id_from_embed(i.message.embeds[0])
         if not tid:
-            await i.followup.send("❌", ephemeral=True)
+            await safe_send(i.followup, "❌", ephemeral=True)
             return
         r = await bans_store.update(lambda d: d.pop(str(tid), None))
-        await i.followup.send(f"✅ снят с <@{tid}>" if r is not None else "ℹ️ нет")
+        await safe_send(i.followup, f"✅ снят с <@{tid}>" if r is not None else "ℹ️ нет")
         if r is not None:
             await log_to_channel(i.client, f"✅ unban <@{tid}> от {i.user.mention}")
 
@@ -1022,8 +1027,8 @@ class TempBanModal(discord.ui.Modal, title="Запрет"):
         until = (now_utc() + datetime.timedelta(hours=hours)).isoformat()
         await bans_store.update(lambda d: d.update({str(self.tid): {
             "type": "temp", "until": until, "reason": self.reason.value.strip() or "-"}}))
-        await i.response.send_message(f"🚫 <@{self.tid}> запрет на {hours} часов.")
-        await log_to_channel(i.client, f"🚫 tempban <@{self.tid}> {hours}ч от {i.user.mention}")
+        await i.response.send_message(f"🚫 <@{self.tid}> запрет на {hours} ч.")
+        await log_to_channel(i.client, f"🚫 temp <@{self.tid}> {hours}ч от {i.user.mention}")
 
 # ============================================================
 # МОДАЛЬНОЕ ОКНО ЗАЯВКИ
@@ -1045,7 +1050,7 @@ class QuestionnaireModal(discord.ui.Modal, title="Заявка в клан"):
         await i.response.defer(ephemeral=False)
         blocked, rt = is_user_blocked(i.user.id)
         if blocked:
-            await i.followup.send(rt, ephemeral=True)
+            await safe_send(i.followup, rt, ephemeral=True)
             return
         m = re.search(r"\d{17}", self.steam_input.value.strip())
         sid = m.group(0) if m else None
@@ -1084,7 +1089,7 @@ class QuestionnaireModal(discord.ui.Modal, title="Заявка в клан"):
             except Exception as ex:
                 log(f"⚠️ Канал заявок: {ex}")
 
-        await i.followup.send("✅ Ваша заявка отправлена на рассмотрение!", ephemeral=True)
+        await safe_send(i.followup, "✅ Ваша заявка отправлена на рассмотрение!", ephemeral=True)
         asyncio.create_task(_create_application_thread(i, e))
 
 
@@ -1203,7 +1208,7 @@ async def on_app_command_error(i, err):
             if not i.response.is_done():
                 await i.response.send_message(msg, ephemeral=True)
             else:
-                await i.followup.send(msg, ephemeral=True)
+                await safe_send(i.followup, msg, ephemeral=True)
         except Exception:
             pass
         return
@@ -1244,7 +1249,7 @@ async def link(i, steam_id: str):
         existing = links_store.read()
         owner = next((d for d, s in existing.items() if s == steam_id), None)
         if owner and int(owner) != i.user.id:
-            await i.followup.send("❌ SteamID занят.", ephemeral=False)
+            await safe_send(i.followup, "❌ SteamID занят.", ephemeral=False)
             return
 
         u = await run_with_timeout(
@@ -1257,11 +1262,11 @@ async def link(i, steam_id: str):
         if u is None:
             return
         if u.get("_not_found"):
-            await i.followup.send(f"❌ Игрок `{steam_id}` не найден на cs2red.", ephemeral=False)
+            await safe_send(i.followup, f"❌ Игрок `{steam_id}` не найден на cs2red.", ephemeral=False)
             return
 
         await links_store.update(lambda d: d.update({str(i.user.id): steam_id}))
-        await i.followup.send(
+        await safe_send(i.followup,
             f"✅ Привязано: `{steam_id}` (ник **{u.get('nick', '-')}**)",
             ephemeral=False
         )
@@ -1282,7 +1287,7 @@ async def unlink(i):
     try:
         rid = await links_store.update(lambda d: d.pop(str(i.user.id), None))
         if rid is None:
-            await i.followup.send("ℹ️ Не привязан.", ephemeral=False)
+            await safe_send(i.followup, "ℹ️ Не привязан.", ephemeral=False)
             return
         managed_n = {n for n in ROLE_MAP.values() if n}
         managed_i = set(CLAN_ROLE_MAP.values())
@@ -1294,7 +1299,7 @@ async def unlink(i):
                     removed.append(r.name)
                 except discord.Forbidden:
                     pass
-        await i.followup.send(
+        await safe_send(i.followup,
             f"✅ Отвязано. Снято: {', '.join(removed) if removed else 'нет'}",
             ephemeral=False
         )
@@ -1311,7 +1316,7 @@ async def sync_all(i):
     try:
         links = links_store.read()
         if not links:
-            await i.followup.send("ℹ️ Пусто.", ephemeral=False)
+            await safe_send(i.followup, "ℹ️ Пусто.", ephemeral=False)
             return
         res = []
         for did, sid in links.items():
@@ -1323,7 +1328,7 @@ async def sync_all(i):
             res.append(await sync_clan_role_by_id(i.guild, m, sid))
             await asyncio.sleep(REQUEST_DELAY)
         text = f"📊 {len(res)}\n\n" + "\n".join(res)
-        await i.followup.send(text[:1900], ephemeral=False)
+        await safe_send(i.followup, text[:1900], ephemeral=False)
         await log_to_channel(i.client, text)
     except Exception as e:
         await log_error(i.client, "/sync_all", e)
@@ -1360,7 +1365,7 @@ async def link_all(i):
     try:
         f = data_path("mass_links.json")
         if not f.exists():
-            await i.followup.send("❌ Файл `mass_links.json` не найден.", ephemeral=False)
+            await safe_send(i.followup, "❌ Файл `mass_links.json` не найден.", ephemeral=False)
             return
 
         try:
@@ -1369,14 +1374,14 @@ async def link_all(i):
             if not isinstance(data, dict):
                 raise ValueError("должен быть JSON-объект")
         except json.JSONDecodeError as e:
-            await i.followup.send(
+            await safe_send(i.followup,
                 f"❌ JSON повреждён: {e}\n"
                 f"Проверь файл на https://jsonlint.com",
                 ephemeral=False
             )
             return
         except Exception as e:
-            await i.followup.send(f"❌ Ошибка чтения: {e}", ephemeral=False)
+            await safe_send(i.followup, f"❌ Ошибка чтения: {e}", ephemeral=False)
             return
 
         total = len(data)
@@ -1436,7 +1441,7 @@ async def link_all(i):
             if processed - last_progress >= 20:
                 last_progress = processed
                 try:
-                    await i.followup.send(
+                    await safe_send(i.followup,
                         f"⏳ Прогресс: {processed}/{total}…",
                         ephemeral=False
                     )
@@ -1462,7 +1467,7 @@ async def link_all(i):
             text += "**Нет на сервере:**\n" + "\n".join(no_member[:10]) + "\n\n"
         if other:
             text += "**Прочее:**\n" + "\n".join(other[:10])
-        await i.followup.send(text[:1900], ephemeral=False)
+        await safe_send(i.followup, text[:1900], ephemeral=False)
         await log_to_channel(i.client,
             f"📊 /link_all: +{len(added)} / уже {len(already)} / "
             f"не SID {len(skip_not_sid)} / нет на сервере {len(no_member)} / "
@@ -1480,7 +1485,7 @@ async def export_members(i):
     try:
         links = links_store.read()
         if not links:
-            await i.followup.send("ℹ️ Нет привязанных.", ephemeral=False)
+            await safe_send(i.followup, "ℹ️ Нет привязанных.", ephemeral=False)
             return
         valid = {}
         for did, sid in links.items():
@@ -1491,9 +1496,9 @@ async def export_members(i):
                 json.dump(valid, f, ensure_ascii=False, indent=2)
         except Exception as e:
             await log_error(i.client, "/export_members.write", e)
-            await i.followup.send(f"❌ {e}", ephemeral=False)
+            await safe_send(i.followup, f"❌ {e}", ephemeral=False)
             return
-        await i.followup.send(
+        await safe_send(i.followup,
             f"✅ Выгружено привязок: **{len(valid)}**",
             ephemeral=False
         )
@@ -1525,7 +1530,7 @@ async def player_info(i, member: discord.Member):
             return
 
         if not profile.get("steamid64"):
-            await i.followup.send("❌ Нет SteamID", ephemeral=False)
+            await safe_send(i.followup, "❌ Нет SteamID", ephemeral=False)
             return
 
         def _merge(db):
@@ -1540,7 +1545,7 @@ async def player_info(i, member: discord.Member):
 
         await send_player_report(i.client, profile)
 
-        await i.followup.send(
+        await safe_send(i.followup,
             f"✅ Профиль **{member.display_name}** отправлен в <#{DB_CHANNEL_ID}>.",
             ephemeral=False
         )
@@ -1558,7 +1563,7 @@ async def player_note(i, member: discord.Member, note: str):
     try:
         sid = links_store.read().get(str(member.id))
         if not sid:
-            await i.followup.send("❌ Нет SteamID", ephemeral=False)
+            await safe_send(i.followup, "❌ Нет SteamID", ephemeral=False)
             return
 
         async def _make():
@@ -1567,7 +1572,7 @@ async def player_note(i, member: discord.Member, note: str):
         profile["notes"] = note
         profile["updated_at"] = now_utc().isoformat()
         await players_store.update(lambda d: d.update({sid: profile}))
-        await i.followup.send(f"✅ Заметка для {member.mention}", ephemeral=False)
+        await safe_send(i.followup, f"✅ Заметка для {member.mention}", ephemeral=False)
         await send_player_report(i.client, profile)
     except Exception as e:
         await log_error(i.client, "/player_note", e)
@@ -1582,7 +1587,7 @@ async def player_list(i):
     try:
         db = players_store.read()
         if not db:
-            await i.followup.send("ℹ️ Пусто", ephemeral=False)
+            await safe_send(i.followup, "ℹ️ Пусто", ephemeral=False)
             return
         links = links_store.read()
         rev = {s: d for d, s in links.items()}
@@ -1597,7 +1602,7 @@ async def player_list(i):
         text = "📊 **База:**\n" + "\n".join(lines[:50])
         if len(lines) > 50:
             text += f"\n...и ещё {len(lines) - 50}"
-        await i.followup.send(text[:1900], ephemeral=False)
+        await safe_send(i.followup, text[:1900], ephemeral=False)
     except Exception as e:
         await log_error(i.client, "/player_list", e)
         await close_interaction(i, f"❌ Ошибка: {str(e)[:200]}")
@@ -1609,7 +1614,7 @@ async def lookup(i, member: discord.Member):
     try:
         sid = links_store.read().get(str(member.id))
         if not sid:
-            await i.followup.send("❌ Не привязан", ephemeral=False)
+            await safe_send(i.followup, "❌ Не привязан", ephemeral=False)
             return
         u = await run_with_timeout(
             api.cs2red_user(sid),
@@ -1624,7 +1629,7 @@ async def lookup(i, member: discord.Member):
         rid = u.get("roleId") if u and not u.get("_not_found") else None
         clan = await api.player_clan(sid)
         ct = f" (клан: {clan['clan_name']})" if clan else " (без клана)"
-        await i.followup.send(
+        await safe_send(i.followup,
             f"🎮 **{nick}**{ct}\n👤 {member.mention}\n`{sid}`\n"
             f"Роль: **{role_display_name(rid) if rid else '-'}**",
             ephemeral=False
@@ -1662,7 +1667,7 @@ async def ping(i):
     e.set_footer(text=f"Quantum • {utc_stamp()}")
     if bot.user:
         e.set_thumbnail(url=bot.user.display_avatar.url)
-    await i.followup.send(embed=e, ephemeral=False)
+    await safe_send(i.followup, embed=e, ephemeral=False)
 
 
 # ============================================================
@@ -1860,7 +1865,7 @@ async def health(i: discord.Interaction):
         embed.set_footer(text=f"Quantum • {utc_stamp()} (UTC)",
                          icon_url=bot.user.display_avatar.url)
 
-    await i.followup.send(embed=embed, ephemeral=False)
+    await safe_send(i.followup, embed=embed, ephemeral=False)
     await log_to_channel(i.client, f"🩺 /health: ✅ {ok_count} / ❌ {fail_count}")
 
 
@@ -1873,11 +1878,11 @@ async def moders(i):
     try:
         mods = moders_store.read()
         if not mods:
-            await i.followup.send("ℹ️ Пусто", ephemeral=False)
+            await safe_send(i.followup, "ℹ️ Пусто", ephemeral=False)
             return
         lines = [f"• {(i.guild.get_member(u).mention if i.guild.get_member(u) else f'`{u}`')}"
                  for u in mods]
-        await i.followup.send(f"🛠 ({len(mods)}):\n" + "\n".join(lines), ephemeral=False)
+        await safe_send(i.followup, f"🛠 ({len(mods)}):\n" + "\n".join(lines), ephemeral=False)
     except Exception as e:
         await log_error(i.client, "/moders", e)
         await close_interaction(i, f"❌ Ошибка: {str(e)[:200]}")
@@ -1892,7 +1897,7 @@ async def give(i, user: discord.Member):
     try:
         added = await moders_store.update(
             lambda d: (d.append(user.id), True)[1] if user.id not in d else False)
-        await i.followup.send(
+        await safe_send(i.followup,
             f"✅ {user.mention} получил доступ." if added else "ℹ️ Уже есть.",
             ephemeral=False
         )
@@ -1910,7 +1915,7 @@ async def take(i, user: discord.Member):
     try:
         removed = await moders_store.update(
             lambda d: (d.remove(user.id), True)[1] if user.id in d else False)
-        await i.followup.send(
+        await safe_send(i.followup,
             f"❌ {user.mention} лишён." if removed else "ℹ️ Уже без.",
             ephemeral=False
         )
@@ -1958,7 +1963,7 @@ async def activity_set(i, member: discord.Member, server: str, hours: float):
             db[sid] = p
             return sum(float(v) for v in a.values() if isinstance(v, (int, float)))
         total = await players_store.update(_set)
-        await i.followup.send(
+        await safe_send(i.followup,
             f"✅ {member.display_name} `{server.upper()}`: {hours} ч.\n"
             f"{build_activity_bar(total, ACTIVITY_GOAL_HOURS)}", ephemeral=False
         )
@@ -1976,7 +1981,7 @@ async def activity_clear(i, member: discord.Member):
     try:
         await players_store.update(lambda db: db.update(
             {sid: {**db.get(sid, {}), "activity": {}, "updated_at": now_utc().isoformat()}}) or None)
-        await i.followup.send("✅ Сброшено", ephemeral=False)
+        await safe_send(i.followup, "✅ Сброшено", ephemeral=False)
     except Exception as e:
         await log_error(i.client, "/activity_clear", e)
         await close_interaction(i, f"❌ Ошибка: {str(e)[:200]}")
@@ -1991,7 +1996,7 @@ async def activity_show(i, member: discord.Member):
     try:
         a = players_store.read().get(sid, {}).get("activity", {})
         if not a:
-            await i.followup.send("ℹ️ Пусто", ephemeral=False)
+            await safe_send(i.followup, "ℹ️ Пусто", ephemeral=False)
             return
         lines, t = [], 0.0
         for s, h in sorted(a.items()):
@@ -2001,7 +2006,7 @@ async def activity_show(i, member: discord.Member):
                 continue
             t += hh
             lines.append(f"• `{s}`: {hh} ч.")
-        await i.followup.send(
+        await safe_send(i.followup,
             f"📊 **{member.display_name}**\n" + "\n".join(lines)
             + f"\n\n{build_activity_bar(t, ACTIVITY_GOAL_HOURS)}", ephemeral=False
         )
@@ -2016,11 +2021,11 @@ async def activity_all(i):
     try:
         role = i.guild.get_role(ACTIVITY_ROLE_ID) if ACTIVITY_ROLE_ID else None
         if role is None:
-            await i.followup.send("❌ Роль не найдена", ephemeral=False)
+            await safe_send(i.followup, "❌ Роль не найдена", ephemeral=False)
             return
         ms = [m for m in role.members if not m.bot]
         if not ms:
-            await i.followup.send("ℹ️ Пусто", ephemeral=False)
+            await safe_send(i.followup, "ℹ️ Пусто", ephemeral=False)
             return
         db, links = players_store.read(), links_store.read()
         data = []
@@ -2043,18 +2048,18 @@ async def activity_all(i):
         head = f"📊 **Роль {role.mention}**\n\n"
         foot = f"\n\n📈 Всего: {len(data)}\n✅ Выполнили: {done}\n⚠️ Малоактивных: {len(data) - done}"
         if len(head + body + foot) <= 2000:
-            await i.followup.send(head + body + foot, ephemeral=False)
+            await safe_send(i.followup, head + body + foot, ephemeral=False)
         else:
             cut = body[:2000 - len(head) - len(foot) - 100]
             cut = cut[:cut.rfind("\n")]
-            await i.followup.send(head + cut + "\n_...обрезано_" + foot, ephemeral=False)
+            await safe_send(i.followup, head + cut + "\n_...обрезано_" + foot, ephemeral=False)
     except Exception as e:
         await log_error(i.client, "/activity_all", e)
         await close_interaction(i, f"❌ Ошибка: {str(e)[:200]}")
 
 
 # ============================================================
-# !setup — обновлённый текст заявки
+# !setup — обновлённый текст
 # ============================================================
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -2146,7 +2151,7 @@ async def before_activity_tracker():
 
 
 # ============================================================
-# АВТОСИНХРОНИЗАЦИЯ + 2 ЭМБЕДА (постранично + по одному)
+# АВТОСИНХРОНИЗАЦИЯ + 2 ЭМБЕДА
 # ============================================================
 def _short(text: str, length: int) -> str:
     if len(text) <= length:
@@ -2289,7 +2294,7 @@ async def auto_sync():
                         await safe_send(channel, embed=emb)
                     except Exception as e:
                         await log_error(bot, "auto_sync.report.embed", e)
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(2.0)
         except Exception as e:
             await log_error(bot, "auto_sync.report", e)
 
