@@ -560,6 +560,10 @@ class GeminiClient:
                     raw = await r.text()
                     if r.status != 200:
                         meta["error"] = f"HTTP {r.status}: {raw[:300]}"
+                        low = raw.lower()
+                        if "not found" in low or "unsupported" in low or "invalid" in low:
+                            meta["error"] += (" → проверь переменную AI_MODEL, "
+                                              "например `gemini-3.8-flash`")
                         meta["status"] = str(r.status)
                         self.failures += 1
                         self.last_error = meta["error"]
@@ -741,6 +745,13 @@ class OpenAICompatClient:
                     raw = await r.text()
                     if r.status != 200:
                         meta["error"] = f"HTTP {r.status}: {raw[:300]}"
+                        low = raw.lower()
+                        if ("unavailable" in low or "model_not_found" in low
+                                or "does not exist" in low or "unknown model" in low):
+                            meta["error"] += (" → проверь переменную AI_MODEL. "
+                                              "У LLM7 подходят селекторы "
+                                              "`default`, `fast` или `pro`; "
+                                              f"полный список: {self.base_url}/models")
                         meta["status"] = str(r.status)
                         self.failures += 1
                         self.last_error = meta["error"]
@@ -779,6 +790,20 @@ class OpenAICompatClient:
         return text, meta
 
 
+def _default_openai_model(base_url: str) -> str:
+    """
+    Модель по умолчанию для OpenAI-совместимого провайдера.
+
+    У LLM7 нет имён моделей в стиле OpenAI — там селекторы
+    `default`, `fast`, `pro` (см. https://docs.llm7.io/guides/models).
+    Поэтому для api.llm7.io берём `default`, а для остальных провайдеров
+    оставляем привычное имя.
+    """
+    if "llm7" in (base_url or "").lower():
+        return "default"
+    return "gpt-4o-mini"
+
+
 def make_ai_client(provider: str = "auto", *, gemini_key: str = "", openai_key: str = "",
                    model: str = "", base_url: str = "", api_url: str = "",
                    timeout: float = 45.0, max_output_tokens: int = 900,
@@ -796,10 +821,11 @@ def make_ai_client(provider: str = "auto", *, gemini_key: str = "", openai_key: 
         provider = "gemini" if gemini_key else ("openai" if openai_key else "gemini")
 
     if provider == "openai":
+        resolved_base = base_url or DEFAULT_OPENAI_BASE
         return OpenAICompatClient(
             openai_key,
-            model=model or "gpt-4o-mini",
-            base_url=base_url or DEFAULT_OPENAI_BASE,
+            model=model or _default_openai_model(resolved_base),
+            base_url=resolved_base,
             timeout=timeout,
             max_output_tokens=max_output_tokens,
         )
