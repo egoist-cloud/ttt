@@ -155,11 +155,18 @@ def parse_clauses(text: str) -> dict:
                 current_id = None
     flush()
 
-    # Если построчный разбор почти ничего не дал — режем по номерам в строке.
-    if len(clauses) < 2:
-        inline = _parse_inline(text)
-        if len(inline) > len(clauses):
-            return inline
+    inline = _parse_inline(text)
+    # Если построчный разбор дал меньше двух пунктов, значит текст слит в одну
+    # строку целиком — тогда точнее разбор «по номерам внутри строки».
+    if len(clauses) < 2 and len(inline) > len(clauses):
+        return inline
+    # Иначе добираем пункты, приклеенные к коду: в JS-бандлах и JSON-полях
+    # первая строка правил идёт сразу после «window.__DATA__ = "». Обрывки
+    # короче 25 символов пропускаем — иначе в правила попадут версии вида
+    # «2.5.3» из служебных строк бандла.
+    for cid, body in inline.items():
+        if len(body) >= 25 and cid not in clauses:
+            clauses[cid] = body
     return clauses
 
 
@@ -320,13 +327,20 @@ class RulesBase:
                     self.save_cache()
                     return n, f"API {self.api_url}: {n} пунктов"
 
-        # 3-4) страница и её скрипты
+        # 3-5) страница: видимый текст -> инлайн-скрипты -> внешние бандлы
         html = await _fetch(session, self.url, self.cookies, self.headers)
         if html:
             n = self._apply(html_to_text(html), self.url)
             if n >= MIN_CLAUSES:
                 self.save_cache()
                 return n, f"страница {self.url}: {n} пунктов"
+
+            # У SPA текст правил часто лежит не в разметке, а в JSON внутри
+            # <script> на самой странице — раньше такие скрипты не смотрели.
+            n_inline, where_inline = self._scan_inline_scripts(html)
+            if n_inline >= MIN_CLAUSES:
+                self.save_cache()
+                return n_inline, f"инлайн-скрипт {where_inline}: {n_inline} пунктов"
 
             found, where = await self._scan_scripts(session, html, self.url)
             if found >= MIN_CLAUSES:
@@ -338,12 +352,40 @@ class RulesBase:
         return 0, ("не нашёл правила. Положи rules.txt в DATA_DIR "
                    "(Render: /data) — бот прочитает его")
 
-    async def _scan_scripts(self, session, html: str, base_url: str) -> tuple[int, str]:
+    def _scan_inline_scripts(self, html: str) -> tuple[int, str]:
+        """
+        Ищет правила внутри <script>...</script> на самой странице.
+
+        Так делают Nuxt/Vue/Next: текст страницы приезжает в JSON-поле внутри
+        инлайнового скрипта, а в разметке его нет. Раньше эти скрипты не
+        проверялись вообще.
+        """
         best = 0
-        best_src = ""
+        best_text = ""
+        best_idx = 0
+        pattern = r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>"
+        for idx, body in enumerate(re.findall(pattern, html, re.IGNORECASE | re.DOTALL)):
+            if len(body) < 80:
+                continue
+            text = js_to_text(body)
+            found = len(parse_clauses(text))
+            if found > best:
+                best, best_text, best_idx = found, text, idx
+        if best:
+            self._apply(best_text, f"{self.url} (инлайн #{best_idx})")
+        return best, f"#{best_idx}"
+
+    async def _scan_scripts(self, session, html: str, base_url: str) -> tuple[int, str]:
+        """Обходит внешние бандлы и один уровень чанков, на которые они ссылаются."""
         srcs = re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', html, re.IGNORECASE)
-        for src in srcs[:8]:
-            full = urljoin(base_url, src)
+        queue = [urljoin(base_url, s) for s in srcs[:12]]
+        seen, lazy = set(), []
+        best, best_src = 0, ""
+        while queue or lazy:
+            full = queue.pop(0) if queue else lazy.pop(0)
+            if full in seen:
+                continue
+            seen.add(full)
             js = await _fetch(session, full, self.cookies, self.headers)
             if not js:
                 continue
@@ -351,11 +393,51 @@ class RulesBase:
             clauses = parse_clauses(text)
             if len(clauses) > best:
                 best = len(clauses)
-                best_src = src.split("/")[-1][:40]
+                best_src = full.split("/")[-1][:40]
                 if best >= MIN_CLAUSES:
                     self._apply(text, full)
                     return best, best_src
+            # ленивые чанки: бандл ссылается на файлы, которых нет в разметке
+            if len(lazy) < 10:
+                for ref in re.findall(r'["\']([\w./-]{3,60}\.js)["\']', js):
+                    cand = urljoin(full, ref)
+                    if cand not in seen and cand not in lazy and cand not in queue:
+                        lazy.append(cand)
         return best, best_src
+
+    async def probe(self, session) -> list:
+        """Диагностика: что именно нашлось в каждом источнике правил."""
+        lines = [f"URL страницы: {self.url}",
+                 f"API правил: {self.api_url or '—'}"]
+        local = self.local_file()
+        lines.append(f"локальный файл: {local.name if local else 'нет'}")
+        html = await _fetch(session, self.url, self.cookies, self.headers)
+        if not html:
+            lines.append("страница: НЕ загрузилась")
+            return lines
+        lines.append(f"страница: {len(html)} символов")
+        text = html_to_text(html)
+        lines.append(f"  видимый текст: {len(text)} симв., пунктов {len(parse_clauses(text))}")
+        inline = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>",
+                            html, re.IGNORECASE | re.DOTALL)
+        lines.append(f"  инлайновых скриптов: {len(inline)}")
+        for idx, body in enumerate(inline[:6]):
+            if len(body) < 80:
+                continue
+            js_text = js_to_text(body)
+            lines.append(f"    #{idx}: {len(body)} симв., пунктов {len(parse_clauses(js_text))}")
+        srcs = re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', html, re.IGNORECASE)
+        lines.append(f"  внешних скриптов: {len(srcs)}")
+        for src in srcs[:10]:
+            full = urljoin(self.url, src)
+            js = await _fetch(session, full, self.cookies, self.headers)
+            name = src.split("/")[-1][:30]
+            if not js:
+                lines.append(f"    {name}: не загрузился")
+                continue
+            js_text = js_to_text(js)
+            lines.append(f"    {name}: {len(js)} симв., пунктов {len(parse_clauses(js_text))}")
+        return lines
 
     # ---------- поиск ----------
     def lookup(self, query: str, limit: int = 6) -> dict:
