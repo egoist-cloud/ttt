@@ -265,13 +265,18 @@ GITHUB_BRANCH = (os.getenv("GITHUB_BRANCH") or "main").strip()
 GITHUB_DATA_PATH = (os.getenv("GITHUB_DATA_PATH") or "").strip()
 GITHUB_PUSH_INTERVAL_SECONDS = max(30, _env_int("GITHUB_PUSH_INTERVAL_SECONDS", 120))
 GITHUB_PULL_OVERWRITE = _env_int("GITHUB_PULL_OVERWRITE", 0) == 1
+# Что синхронизируется с GitHub. seen.json сюда НЕ входит: трекер
+# активности меняет его каждые 5 минут, и репозиторий забивался бы коммитами.
 GITHUB_SYNC_FILES = [s.strip() for s in (os.getenv("GITHUB_SYNC_FILES") or (
-    "links.json,users_db.json,moderators.json,votes.json,seen.json,"
+    "links.json,users_db.json,moderators.json,votes.json,"
     "setup.json,pending_links.json,rules.txt")).split(",") if s.strip()]
+# Как часто писать в канал о выгрузке данных (в консоль Render пишем всегда).
+GITHUB_LOG_INTERVAL_SECONDS = max(60, _env_int("GITHUB_LOG_INTERVAL_SECONDS", 3600))
 
 ACTIVITY_GOAL_HOURS = 8
 ACTIVITY_MIN_HOURS = 8
 APPLY_EMBED_COLOR = 0x2B2D31
+AI_EMBED_COLOR = 0x5865F2
 
 BOT_START_TIME = time.time()
 
@@ -677,7 +682,51 @@ async def ai_log(text: str):
         channel = None
     if channel is None:
         return
-    await safe_send(channel, text[:1900])
+    # suppress_embeds: без него Discord подтягивает превью ссылок
+    # (например, огромную карточку cs2red.ru на каждой строке с URL).
+    await safe_send(channel, text[:1900], suppress_embeds=True)
+
+
+async def ai_log_embed(title: str, description: str, footer: str = ""):
+    """Красивый лог ИИ: эмбед с заголовком и подписью вместо простого текста."""
+    log(f"🤖 {title}: {description[:160]}")
+    if not AI_LOG_CHANNEL_ID:
+        return
+    try:
+        channel = bot.get_channel(AI_LOG_CHANNEL_ID)
+    except Exception:
+        channel = None
+    if channel is None:
+        return
+    embed = discord.Embed(title=title[:250], description=(description or "—")[:4000],
+                          color=AI_EMBED_COLOR, timestamp=now_utc())
+    if footer:
+        embed.set_footer(text=footer[:2000])
+    try:
+        await safe_send(channel, embed=embed)
+    except Exception as e:
+        log(f"⚠️ не отправил эмбед ИИ: {e}")
+
+
+def _bot_stats_line() -> str:
+    """Короткая сводка для подписи в логах ИИ."""
+    up = int(time.time() - BOT_START_TIME)
+    days, rem = divmod(up, 86400)
+    hours, rem = divmod(rem, 3600)
+    uptime = f"{days} д. {hours} ч." if days else f"{hours} ч. {rem // 60} мин."
+    running = 0
+    for task_obj in (auto_sync, activity_tracker, rules_refresher,
+                     ai_error_watcher, data_push_loop):
+        try:
+            running += 1 if task_obj.is_running() else 0
+        except Exception:
+            pass
+    try:
+        links_count = len(links_store.read())
+    except Exception:
+        links_count = 0
+    return (f"Quantum • аптайм {uptime} • WS {bot.latency * 1000:.0f} мс • "
+            f"привязок {links_count} • задач {running}/5 • ошибок в буфере {len(_error_ring)}")
 
 
 async def log_error(bot: commands.Bot, context: str, exc):
@@ -3415,6 +3464,32 @@ async def ai_status_prefix(ctx):
     await safe_send(ctx.channel, ai_status_text())
 
 
+@bot.tree.command(name="rules_probe", description="Диагностика: где бот ищет правила")
+async def rules_probe_cmd(i):
+    """Показывает, что нашлось в каждом источнике правил — для отладки."""
+    if not is_moderator(i.user.id, i.guild):
+        await i.response.send_message("❌ Нет доступа.", ephemeral=True)
+        return
+    await i.response.defer(ephemeral=False)
+    if rules_base is None:
+        await safe_send(i.followup, f"❌ Модуль ai_rules не загружен: {_AI_IMPORT_ERROR}",
+                        ephemeral=False)
+        return
+    try:
+        lines = await rules_base.probe(api.session or _NoSession())
+    except Exception as e:
+        await log_error(i.client, "/rules_probe", e)
+        await close_interaction(i, f"❌ Ошибка диагностики: {str(e)[:200]}")
+        return
+    text = "\n".join(lines)
+    # длинный отчёт уходит в канал логов ИИ, в чат — итог
+    await ai_log("🔎 Диагностика правил:\n```\n" + text[:1800] + "\n```")
+    await safe_send(i.followup,
+        f"✅ Отчёт отправлен в <#{AI_LOG_CHANNEL_ID}>.\n"
+        f"Найдено пунктов: **{rules_base.size}**, источник: {rules_base.source}",
+        ephemeral=False)
+
+
 @bot.command(name="ai_scan")
 async def ai_scan_prefix(ctx):
     """!ai_scan — принудительно обновить правила и разобрать ошибки."""
@@ -3426,7 +3501,7 @@ async def ai_scan_prefix(ctx):
     await ai_log(f"📚 Правила обновлены вручную ({ctx.author}): {status}")
     report = await analyze_errors_once()
     if report:
-        await ai_log(report[:1900])
+        await _send_ai_report(report)
         await safe_send(ctx.channel, "✅ Готово, отчёт в канале логов ИИ.")
     else:
         await safe_send(ctx.channel, "✅ Новых ошибок для разбора нет.")
@@ -3758,8 +3833,24 @@ async def refresh_rules_once() -> str:
 
 @tasks.loop(hours=RULES_TTL_HOURS)
 async def rules_refresher():
+    """
+    Обновляет базу правил.
+
+    В канал пишем ТОЛЬКО когда правила реально изменились. Раньше сообщение
+    уходило при каждом запуске задачи, а она стартует вместе с ботом — на
+    бесплатном тарифе Render перезапуски частые, и канал забивался строками
+    «оставил прежние данные». Теперь такие случаи видны только в логах Render
+    и в /ping, /health.
+    """
+    if rules_base is None:
+        return
+    before = (rules_base.source, rules_base.size)
     status = await refresh_rules_once()
-    await ai_log(f"📚 Правила обновлены: {status}")
+    after = (rules_base.source, rules_base.size)
+    if after[1] > 0 and after != before:
+        await ai_log(f"📚 Правила обновлены: {status}")
+    else:
+        log(f"📚 Правила: {status}")
 
 
 @rules_refresher.before_loop
@@ -3807,10 +3898,24 @@ async def analyze_errors_once() -> str:
     text, meta = await ai_client.ask(api.session, prompt, system=ai_rules.SRE_SYSTEM,
                                      max_output_tokens=1200)
     if text:
-        return (f"🧠 **Разбор ошибок** ({len(fresh)} шт., {meta['latency']:.1f} с, "
-                f"модель {ai_client.model})\n\n{text}")
-    return (f"⚠️ ИИ не разобрал ошибки ({meta['error'][:200]}). "
-            f"Ошибок в пачке: {len(fresh)}")
+        return ("EMBED", text, f"Ошибок: {len(fresh)} • {meta['latency']:.1f} с • "
+                               f"модель {ai_client.model} • {_bot_stats_line()}")
+    return ("TEXT", f"⚠️ ИИ не разобрал ошибки ({meta['error'][:200]}). "
+                    f"Ошибок в пачке: {len(fresh)}", "")
+
+
+async def _send_ai_report(report):
+    """Отправляет результат разбора: эмбедом или текстом."""
+    if not report:
+        return
+    if isinstance(report, tuple):
+        kind, body, footer = report
+        if kind == "EMBED":
+            await ai_log_embed("🤖 ИИ-анализ бота", body, footer)
+            return
+        await ai_log(body)
+        return
+    await ai_log(str(report)[:1900])
 
 
 @tasks.loop(minutes=AI_ERROR_INTERVAL_MINUTES)
@@ -3818,9 +3923,7 @@ async def ai_error_watcher():
     if not AI_ERROR_ANALYSIS:
         return
     try:
-        report = await analyze_errors_once()
-        if report:
-            await ai_log(report[:1900])
+        await _send_ai_report(await analyze_errors_once())
     except Exception as e:
         await log_error(bot, "ai_error_watcher", e)
 
@@ -3831,22 +3934,60 @@ async def before_ai_error_watcher():
     await asyncio.sleep(60)
 
 
+_gh_log_last = 0.0
+_gh_log_saved = 0
+_gh_log_skipped: set = set()
+
+
 @tasks.loop(seconds=GITHUB_PUSH_INTERVAL_SECONDS)
 async def data_push_loop():
-    """Выгружает изменённые JSON-базы в GitHub, чтобы они не терялись на Render."""
+    """
+    Выгружает изменённые базы в GitHub.
+
+    В консоль Render пишем каждую выгрузку, а в канал — не чаще раза в
+    GITHUB_LOG_INTERVAL_SECONDS. Раньше строка уходила в канал на каждое
+    изменение, а players_db.json и seen.json меняются каждые 5 минут.
+    """
+    global _gh_log_last, _gh_log_saved
     if github_sync is None or not github_sync.enabled or not _data_dirty:
         return
-    files = sorted(_data_dirty)
+
+    allowed = set(GITHUB_SYNC_FILES)
+    files = sorted(_data_dirty & allowed)
+    blocked = sorted(_data_dirty - allowed)
     _data_dirty.clear()
+    _gh_log_skipped.update(blocked)
+    if not files:
+        return
+
     try:
         pushed, status = await github_sync.push(api.session or _NoSession(), files, DATA_DIR)
-        if pushed:
-            await ai_log(f"☁️ GitHub: {status}")
-        elif "не удалось" in status:
-            await ai_log(f"⚠️ GitHub: {status}")
     except Exception as e:
         await log_error(bot, "data_push_loop", e)
         _data_dirty.update(files)   # вернём в очередь, попробуем в следующий раз
+        return
+
+    log(f"☁️ GitHub: {status}")
+    _gh_log_saved += pushed
+
+    failed = "не удалось" in status
+    now = time.time()
+    if not failed and _gh_log_last and now - _gh_log_last < GITHUB_LOG_INTERVAL_SECONDS:
+        return
+
+    _gh_log_last = now
+    parts = []
+    if _gh_log_saved:
+        parts.append(f"сохранено файлов: {_gh_log_saved}")
+    if _gh_log_skipped:
+        parts.append("не выгружаю (нет в GITHUB_SYNC_FILES): "
+                     + ", ".join(sorted(_gh_log_skipped)))
+    if failed:
+        parts.append(status)
+    if parts:
+        await ai_log("☁️ GitHub: " + "; ".join(parts))
+    _gh_log_saved = 0
+    _gh_log_skipped.clear()
 
 
 @data_push_loop.before_loop
