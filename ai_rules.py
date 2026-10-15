@@ -35,6 +35,9 @@ DEFAULT_MODEL = "gemini-3.8-flash"
 
 # Минимум пунктов, чтобы считать найденный текст правилами, а не мусором.
 MIN_CLAUSES = 5
+
+# По этим словам отбираем API-пути, похожие на правила или текстовые страницы.
+API_HINTS = ("rule", "page", "content", "text", "info", "static", "document", "article")
 MAX_FETCH_BYTES = 4_000_000
 
 
@@ -149,10 +152,14 @@ def parse_clauses(text: str) -> dict:
             stripped = line.strip()
             if stripped:
                 buf.append(stripped)
-            elif buf:
-                # пустая строка — тоже граница пункта
-                flush()
-                current_id = None
+                # страховка от «склеивания» всего документа в один пункт,
+                # если нумерация в тексте редкая
+                if sum(len(x) for x in buf) > 2000:
+                    flush()
+                    current_id = None
+            # Пустая строка пункт НЕ закрывает: в реальных правилах наказание
+            # часто идёт отдельным абзацем после пустой строки, и раньше оно
+            # терялось. Границей считается только следующий номер пункта.
     flush()
 
     inline = _parse_inline(text)
@@ -224,6 +231,8 @@ class RulesBase:
 
         self.clauses: dict = {}
         self.sections: dict = {}
+        # Скачанные бандлы: нужны, чтобы искать в них API-пути.
+        self._js_cache: dict = {}
         self.text: str = ""
         self.source: str = "нет данных"
         self.fetched_at: float = 0.0
@@ -347,10 +356,43 @@ class RulesBase:
                 self.save_cache()
                 return found, f"JS-бандл {where}: {found} пунктов"
 
+            # Правила могут приезжать отдельным JSON-запросом: пробуем
+            # API-пути, которые нашлись в коде страницы.
+            for endpoint in self._api_candidates(html)[:8]:
+                raw = await _fetch(session, endpoint, self.cookies, self.headers)
+                if not raw:
+                    continue
+                data = _json_to_text(raw) if raw.lstrip()[:1] in "[{" else raw
+                n_api = self._apply(data, endpoint)
+                if n_api >= MIN_CLAUSES:
+                    self.save_cache()
+                    return n_api, f"API {endpoint}: {n_api} пунктов"
+
         if self.ready:
             return len(self.clauses), f"оставил прежние данные ({self.source})"
         return 0, ("не нашёл правила. Положи rules.txt в DATA_DIR "
                    "(Render: /data) — бот прочитает его")
+
+    def _api_candidates(self, html: str = "") -> list:
+        """
+        Пути /api/..., найденные в разметке и в скачанных бандлах.
+
+        Сайт — SPA: текст правил может приезжать отдельным JSON-запросом,
+        а не в разметке. Поэтому ищем в коде все упоминания API и оставляем
+        те, что похожи на правила или страницы.
+        """
+        seen, found = set(), []
+        sources = list(getattr(self, "_js_cache", {}).values())
+        if html:
+            sources.append(html)
+        for text in sources:
+            for path in re.findall(r'["\'`](/api/[A-Za-z0-9_/\-\.]{2,60})["\'`]', text):
+                if path in seen:
+                    continue
+                seen.add(path)
+                if any(hint in path.lower() for hint in API_HINTS):
+                    found.append(urljoin(self.url, path))
+        return found
 
     def _scan_inline_scripts(self, html: str) -> tuple[int, str]:
         """
@@ -389,6 +431,7 @@ class RulesBase:
             js = await _fetch(session, full, self.cookies, self.headers)
             if not js:
                 continue
+            self._js_cache[full] = js
             text = js_to_text(js)
             clauses = parse_clauses(text)
             if len(clauses) > best:
@@ -435,8 +478,26 @@ class RulesBase:
             if not js:
                 lines.append(f"    {name}: не загрузился")
                 continue
+            self._js_cache[full] = js
             js_text = js_to_text(js)
             lines.append(f"    {name}: {len(js)} симв., пунктов {len(parse_clauses(js_text))}")
+            refs = sorted(set(re.findall(r'["\']([\w./-]{3,60}\.js)["\']', js)))
+            if refs:
+                lines.append(f"      ссылки на чанки: {', '.join(refs[:6])}")
+
+        candidates = self._api_candidates(html)
+        lines.append(f"  найдено API-путей: {len(candidates)}")
+        for url in candidates[:15]:
+            lines.append(f"    {url}")
+        if not candidates:
+            lines.append("    (ни одного /api/... в коде страницы не видно)")
+        for url in candidates[:8]:
+            raw = await _fetch(session, url, self.cookies, self.headers)
+            if not raw:
+                continue
+            data = _json_to_text(raw) if raw.lstrip()[:1] in "[{" else raw
+            n_found = len(parse_clauses(data))
+            lines.append(f"    ✓ {url}: {len(raw)} симв., пунктов {n_found}")
         return lines
 
     # ---------- поиск ----------
