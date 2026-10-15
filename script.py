@@ -180,6 +180,10 @@ APPLICATIONS_CHANNEL_ID = _env_int("APPLICATIONS_CHANNEL_ID", 151146362370326536
 APPS_LOG_CHANNEL_ID = _env_int("APPS_LOG_CHANNEL_ID", 1511463623703265361)
 # Куда идёт отчёт «кто не привязан через /link» — отдельно от общих логов.
 UNLINKED_CHANNEL_ID = _env_int("UNLINKED_CHANNEL_ID", 1555204495682568202)
+# Куда идёт отчёт автосинхронизации (таблица Discord / SteamID / Клан).
+# По умолчанию — тот же канал, что и список непривязанных: логи привязок
+# живут отдельно от заявок. Можно переопределить через SYNC_LOG_CHANNEL_ID.
+SYNC_LOG_CHANNEL_ID = _env_int("SYNC_LOG_CHANNEL_ID", 0) or UNLINKED_CHANNEL_ID
 THREADS_CHANNEL_ID = _env_int("THREADS_CHANNEL_ID", 1236678127778795660)
 DB_CHANNEL_ID = _env_int("DB_CHANNEL_ID", 1554883485834149888)
 ERROR_LOG_CHANNEL_ID = _env_int("ERROR_LOG_CHANNEL_ID", 1511463623703265361)
@@ -2852,11 +2856,16 @@ async def health(i: discord.Interaction):
         add("🤖", "ИИ (Gemini/LLM)",
             "выключен: нужен GEMINI_API_KEY или LLM7_API_KEY", False)
 
-    if rules_base is not None and rules_base.ready:
+    if rules_base is not None and rules_base.size > 0:
         add("📚", "База правил", rules_base.status_line(), True)
+    elif rules_base is not None and rules_base.ready:
+        add("📚", "База правил",
+            f"{rules_base.status_line()} — ни одного пункта не распознано, "
+            f"ответы по правилам будут неточными. Положи rules.txt "
+            f"(шаблон — rules.example.txt) в репозиторий данных", False)
     else:
         add("📚", "База правил",
-            "нет данных — положи rules.txt в DATA_DIR или задай RULES_API_URL", False)
+            "нет данных — положи rules.txt в папку данных или задай RULES_API_URL", False)
 
     if github_sync is not None and github_sync.enabled:
         add("☁️", "GitHub-хранилище", github_sync.status_line(), not github_sync.last_error)
@@ -3176,6 +3185,9 @@ def ai_status_text() -> str:
     lines.append(f"• хранилище данных: "
                  f"{github_sync.status_line() if github_sync else 'модуль github_sync не загружен'}")
     lines.append(f"• DATA_DIR: `{DATA_DIR}`")
+    if rules_base is not None and rules_base.size == 0:
+        lines.append("• ⚠️ пунктов правил не найдено — положи `rules.txt` "
+                     "в репозиторий данных и выполни `!ai_scan`")
     lines.append(f"• разбор ошибок: {'включён' if AI_ERROR_ANALYSIS else 'выключен'}, "
                  f"каждые {AI_ERROR_INTERVAL_MINUTES} мин")
     lines.append(f"• ошибок в буфере: `{len(_error_ring)}`")
@@ -3566,7 +3578,8 @@ async def auto_sync():
         try:
             sync_embeds, unlinked_embed = await build_auto_sync_embeds(guild)
 
-            channel = bot.get_channel(LOG_CHANNEL_ID)
+            # Отчёт автосинхронизации — в канал логов привязок, а не в канал заявок.
+            channel = bot.get_channel(SYNC_LOG_CHANNEL_ID) if SYNC_LOG_CHANNEL_ID else None
             if channel is not None:
                 for emb in sync_embeds:
                     try:
