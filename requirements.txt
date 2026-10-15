@@ -1,5 +1,6 @@
+# ИИ работает через уже установленный aiohttp (Gemini Interactions API),
+# официальный SDK google-genai не требуется.
 aiohttp==3.14.3
 discord.py==2.7.1
 python-dotenv==1.2.3
 Flask==3.0.3
-beautifulsoup4==4.13.4

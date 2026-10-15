@@ -13,7 +13,7 @@ import sys
 import threading
 import traceback
 from pathlib import Path
-from collections import defaultdict, deque
+from collections import deque
 
 import aiohttp
 import discord
@@ -21,7 +21,24 @@ from discord.ext import commands, tasks
 from discord import app_commands
 from dotenv import load_dotenv
 from flask import Flask
-from bs4 import BeautifulSoup
+
+# ИИ-модуль отдельным файлом: если его забыли залить, бот всё равно стартует.
+try:
+    import ai_rules
+except Exception as _ai_import_error:  # noqa: BLE001 - причина важнее типа
+    ai_rules = None
+    _AI_IMPORT_ERROR = f"{type(_ai_import_error).__name__}: {_ai_import_error}"
+else:
+    _AI_IMPORT_ERROR = ""
+
+# Хранилище данных в GitHub — тоже необязательное.
+try:
+    import github_sync as github_sync_module
+except Exception as _gh_import_error:  # noqa: BLE001
+    github_sync_module = None
+    _GH_IMPORT_ERROR = f"{type(_gh_import_error).__name__}: {_gh_import_error}"
+else:
+    _GH_IMPORT_ERROR = ""
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -55,31 +72,127 @@ def log(msg: str):
 # НАСТРОЙКИ
 # ============================================================
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-GUILD_ID = int(os.getenv("GUILD_ID", "0"))
 
-LOG_CHANNEL_ID = 1511463623703265361
-APPLICATION_LOGS_CHANNEL_ID = 1511463623703265361
-APPLICATIONS_CHANNEL_ID = 1511463623703265361
-THREADS_CHANNEL_ID = 1236678127778795660
-DB_CHANNEL_ID = 1554883485834149888
-ERROR_LOG_CHANNEL_ID = 1511463623703265361
 
-ALLOWED_ROLE_ID = int(os.getenv("ALLOWED_ROLE_ID", "0"))
-REVIEWER_ROLE_ID_2 = int(os.getenv("REVIEWER_ROLE_ID_2", "0"))
-SPAM_VOTE_ROLE_ID = int(os.getenv("SPAM_VOTE_ROLE_ID", "0"))
-EXTRA_REVIEWER_ROLE_1 = int(os.getenv("EXTRA_REVIEWER_ROLE_1", "0"))
-EXTRA_REVIEWER_ROLE_2 = int(os.getenv("EXTRA_REVIEWER_ROLE_2", "0"))
-EXTRA_REVIEWER_ROLE_3 = int(os.getenv("EXTRA_REVIEWER_ROLE_3", "0"))
+def _env_ids(name: str, default: str = "") -> list:
+    """
+    Список числовых ID из переменной окружения.
+    Принимает и одно значение, и список через запятую, точку с запятой или пробел:
+        DEPUTY_ROLE_ID=111,222,333
+        DEPUTY_ROLE_ID=111 222 333
+    Некорректные куски пропускаются с предупреждением, а не роняют старт.
+    """
+    raw = (os.getenv(name) or default or "").replace(";", ",").replace(" ", ",")
+    result: list = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            value = int(part)
+        except ValueError:
+            log(f"⚠️ {name}: '{part}' не число — пропускаю")
+            continue
+        if value and value not in result:
+            result.append(value)
+    return result
 
-AUTO_ROLE_ID = int(os.getenv("AUTO_ROLE_ID", "0"))
-BYPASS_ROLE_ID = int(os.getenv("BYPASS_ROLE_ID", "0"))
-NO_COOLDOWN_ROLE_ID = int(os.getenv("NO_COOLDOWN_ROLE_ID", "0"))
 
-ACTIVITY_ROLE_ID = int(os.getenv("ACTIVITY_ROLE_ID", "1448368118190837800"))
+def _env_int(name: str, default: int) -> int:
+    """Число из переменной окружения. Мусор в .env больше не роняет бота на старте."""
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        log(f"⚠️ {name}='{raw}' не число — беру {default}")
+        return default
+
+
+GUILD_ID = _env_int("GUILD_ID", 0)
+
+# ID каналов вынесены в .env: на Render/Pterodactyl их удобнее менять без правки кода.
+LOG_CHANNEL_ID = _env_int("LOG_CHANNEL_ID", 1511463623703265361)
+APPLICATION_LOGS_CHANNEL_ID = _env_int("APPLICATION_LOGS_CHANNEL_ID", LOG_CHANNEL_ID)
+APPLICATIONS_CHANNEL_ID = _env_int("APPLICATIONS_CHANNEL_ID", 1511463623703265361)
+# Куда идут логи заявок: карточки принятых и отклонённых заявок.
+APPS_LOG_CHANNEL_ID = _env_int("APPS_LOG_CHANNEL_ID", 1511463623703265361)
+# Куда идёт отчёт «кто не привязан через /link» — отдельно от общих логов.
+UNLINKED_CHANNEL_ID = _env_int("UNLINKED_CHANNEL_ID", 1555204495682568202)
+THREADS_CHANNEL_ID = _env_int("THREADS_CHANNEL_ID", 1236678127778795660)
+DB_CHANNEL_ID = _env_int("DB_CHANNEL_ID", 1554883485834149888)
+ERROR_LOG_CHANNEL_ID = _env_int("ERROR_LOG_CHANNEL_ID", 1511463623703265361)
+
+ALLOWED_ROLE_ID = _env_int("ALLOWED_ROLE_ID", 0)
+# Заместители: могут закрыть заявку единолично, без второго голоса.
+# Ролей может быть несколько — перечисли через запятую:
+#     DEPUTY_ROLE_ID=111111111111111111,222222222222222222,333333333333333333
+# Поддерживается и отдельное имя DEPUTY_ROLE_IDS.
+DEPUTY_ROLE_IDS = _env_ids("DEPUTY_ROLE_IDS") or _env_ids("DEPUTY_ROLE_ID")
+# Первый ID оставлен для совместимости (логи, старые проверки).
+DEPUTY_ROLE_ID = DEPUTY_ROLE_IDS[0] if DEPUTY_ROLE_IDS else 0
+REVIEWER_ROLE_ID_2 = _env_int("REVIEWER_ROLE_ID_2", 0)
+SPAM_VOTE_ROLE_ID = _env_int("SPAM_VOTE_ROLE_ID", 0)
+EXTRA_REVIEWER_ROLE_1 = _env_int("EXTRA_REVIEWER_ROLE_1", 0)
+EXTRA_REVIEWER_ROLE_2 = _env_int("EXTRA_REVIEWER_ROLE_2", 0)
+EXTRA_REVIEWER_ROLE_3 = _env_int("EXTRA_REVIEWER_ROLE_3", 0)
+
+AUTO_ROLE_ID = _env_int("AUTO_ROLE_ID", 0)
+BYPASS_ROLE_ID = _env_int("BYPASS_ROLE_ID", 0)
+NO_COOLDOWN_ROLE_ID = _env_int("NO_COOLDOWN_ROLE_ID", 0)
+
+ACTIVITY_ROLE_ID = _env_int("ACTIVITY_ROLE_ID", 1448368118190837800)
 
 CLAN_NAME = os.getenv("CLAN_NAME", "TALENT")
 CLAN_URL = os.getenv("CLAN_URL", "https://cs2red.ru/clans/id/47")
-VOTES_REQUIRED = int(os.getenv("VOTES_REQUIRED", "2"))
+VOTES_REQUIRED = max(1, _env_int("VOTES_REQUIRED", 2))
+
+# Кулдаун /link (реализован вручную, чтобы работала роль NO_COOLDOWN_ROLE_ID).
+LINK_COOLDOWN_SECONDS = max(0, _env_int("LINK_COOLDOWN_SECONDS", 30))
+# Проверка владения Steam-аккаунтом: код в нике Steam. 0 — выключить.
+LINK_VERIFY = _env_int("LINK_VERIFY", 1) == 1
+LINK_CODE_TTL_MINUTES = max(1, _env_int("LINK_CODE_TTL_MINUTES", 20))
+
+# ============================================================
+# ИИ (Gemini Interactions API) И БАЗА ПРАВИЛ
+# ============================================================
+GEMINI_API_KEY = (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
+AI_ENABLED = _env_int("AI_ENABLED", 1) == 1
+AI_MODEL = (os.getenv("AI_MODEL") or "").strip()
+AI_API_URL = (os.getenv("AI_API_URL") or "").strip()
+# Сюда идут ВСЕ логи ИИ: запросы, ответы, ошибки, разборы ошибок, обновление правил.
+# Поддерживаем оба имени: в Render у тебя уже есть AI_REPORT_CHANNEL_ID.
+AI_LOG_CHANNEL_ID = _env_int("AI_LOG_CHANNEL_ID",
+                             _env_int("AI_REPORT_CHANNEL_ID", 1554796338661826660))
+# gemini | openai | auto (auto: Gemini, если есть ключ, иначе OpenAI-совместимый)
+AI_PROVIDER = (os.getenv("AI_PROVIDER") or "auto").strip().lower()
+# Для провайдера openai: базовый URL (LLM7, OpenRouter, свой прокси)
+AI_BASE_URL = (os.getenv("AI_BASE_URL") or "").strip()
+AI_API_KEY_ALT = (os.getenv("AI_API_KEY") or os.getenv("LLM7_API_KEY")
+                  or os.getenv("OPENROUTER_API_KEY") or "").strip()
+AI_TIMEOUT = float(os.getenv("AI_TIMEOUT") or 45)
+AI_MAX_OUTPUT_TOKENS = _env_int("AI_MAX_OUTPUT_TOKENS", 900)
+AI_THINKING_LEVEL = (os.getenv("AI_THINKING_LEVEL") or "").strip()
+AI_ERROR_INTERVAL_MINUTES = max(1, _env_int("AI_ERROR_INTERVAL_MINUTES", 15))
+AI_ERROR_ANALYSIS = _env_int("AI_ERROR_ANALYSIS", 1) == 1
+AI_ASK_COOLDOWN_SECONDS = max(0, _env_int("AI_ASK_COOLDOWN_SECONDS", 20))
+RULES_URL = (os.getenv("RULES_URL") or "https://cs2red.ru/rules").strip()
+RULES_API_URL = (os.getenv("RULES_API_URL") or "").strip()
+RULES_TTL_HOURS = max(1, _env_int("RULES_TTL_HOURS", 12))
+
+# ============================================================
+# ХРАНЕНИЕ ДАННЫХ В GITHUB (если нет Persistent Disk)
+# ============================================================
+GITHUB_TOKEN = (os.getenv("GITHUB_TOKEN") or "").strip()
+GITHUB_REPO = (os.getenv("GITHUB_REPO") or "").strip()
+GITHUB_BRANCH = (os.getenv("GITHUB_BRANCH") or "main").strip()
+GITHUB_DATA_PATH = (os.getenv("GITHUB_DATA_PATH") or "").strip()
+GITHUB_PUSH_INTERVAL_SECONDS = max(30, _env_int("GITHUB_PUSH_INTERVAL_SECONDS", 120))
+GITHUB_PULL_OVERWRITE = _env_int("GITHUB_PULL_OVERWRITE", 0) == 1
+GITHUB_SYNC_FILES = [s.strip() for s in (os.getenv("GITHUB_SYNC_FILES") or (
+    "links.json,users_db.json,moderators.json,votes.json,seen.json,"
+    "setup.json,pending_links.json,rules.txt")).split(",") if s.strip()]
 
 ACTIVITY_GOAL_HOURS = 8
 ACTIVITY_MIN_HOURS = 8
@@ -122,10 +235,71 @@ CS2RED_HEADERS = {
     "Sec-GPC": "1",
 }
 
-ROLE_MAP = {1: None, 2: "VIP", 3: "Premium", 4: "Moderator",
-            5: "Администратор", 6: "Амбассадор", 9: "Plus"}
+DEFAULT_ROLE_MAP = {1: None, 2: "VIP", 3: "Premium", 4: "Moderator",
+                    5: "Администратор", 6: "Амбассадор", 9: "Plus"}
 ROLE_DISPLAY_MAP = {1: "Мл. Модер", 3: "Модератор", 5: "Админ",
                     6: "С. Админ", 7: "Спонсор", 13: "Гл.Модератор"}
+
+
+def _load_role_map() -> dict:
+    """
+    Карта roleId cs2red -> имя Discord-роли.
+    Переменная ROLE_MAP_JSON в .env дополняет/переопределяет её, например:
+        ROLE_MAP_JSON={"7": "Спонсор", "13": "Гл.Модератор"}
+    Значение null / "none" / "" = «у этой роли нет Discord-аналога»,
+    в этом случае управляемые роли снимаются (как исторически для roleId=1).
+    """
+    result = dict(DEFAULT_ROLE_MAP)
+    raw = (os.getenv("ROLE_MAP_JSON") or "").strip()
+    if not raw:
+        return result
+    try:
+        extra = json.loads(raw)
+        if not isinstance(extra, dict):
+            raise ValueError("ожидается JSON-объект")
+        for key, value in extra.items():
+            result[int(key)] = None if value is None or str(value).strip().lower() in ("", "none", "null") \
+                else str(value)
+    except Exception as e:
+        log(f"⚠️ ROLE_MAP_JSON: {e} — работаю на встроенной карте")
+    return result
+
+
+ROLE_MAP = _load_role_map()
+ROLE_NAMES = {n for n in ROLE_MAP.values() if n}
+
+
+def _load_role_ids() -> dict:
+    """ROLE_IDS_JSON={"Moderator": 123456789012345678} — привязка по ID, а не по имени."""
+    raw = (os.getenv("ROLE_IDS_JSON") or "").strip()
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ValueError("ожидается JSON-объект")
+        return {str(k): int(v) for k, v in data.items()}
+    except Exception as e:
+        log(f"⚠️ ROLE_IDS_JSON: {e} — ищу роли по имени")
+        return {}
+
+
+ROLE_IDS = _load_role_ids()
+
+
+def resolve_managed_role(guild, name: str):
+    """Роль по имени: сначала по ID из ROLE_IDS_JSON, затем по имени без учёта регистра."""
+    rid = ROLE_IDS.get(name)
+    if rid:
+        role = guild.get_role(rid)
+        if role:
+            return role
+        log(f"⚠️ ROLE_IDS_JSON: роль {rid} ('{name}') не найдена в гильдии")
+    norm = name.strip().casefold()
+    for role in guild.roles:
+        if role.name.strip().casefold() == norm:
+            return role
+    return None
 
 
 def role_display_name(role_id) -> str:
@@ -155,28 +329,69 @@ CLANS_CACHE_TTL = 300
 # ХРАНИЛИЩЕ JSON
 # ============================================================
 class JsonStore:
+    """
+    JSON-файл рядом со скриптом.
+
+    read() кэширует разобранные данные и сверяет mtime+size, поэтому
+    sync-вызовы из async-кода больше не парсят весь файл в цикле событий
+    (players_db.json — 148 КБ, а read() вызывается в /health, is_user_blocked,
+    автокомплите и activity_tracker).
+
+    ВАЖНО: read() возвращает объект из кэша. Мутировать его можно только
+    если следом вызывается save()/update() — во всём коде это соблюдено.
+    """
+
     def __init__(self, path, default):
         self.path = Path(path)
         self.default = default
         self.lock = asyncio.Lock()
+        self._cache = None
+        self._stamp = None
+
+    def _default_value(self):
+        return self.default() if callable(self.default) else self.default
 
     def _load(self):
-        if not self.path.exists():
-            return self.default() if callable(self.default) else self.default
+        try:
+            st = self.path.stat()
+            stamp = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            self._cache, self._stamp = self._default_value(), None
+            return self._cache
+        if self._cache is not None and self._stamp == stamp:
+            return self._cache
         try:
             with open(self.path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return self.default() if callable(self.default) else self.default
+                data = json.load(f)
+        except Exception as e:
+            log(f"⚠️ {self.path.name}: {e} — беру значение по умолчанию")
+            data = self._default_value()
+        self._cache, self._stamp = data, stamp
+        return data
 
     def _dump(self, data):
         tmp = self.path.with_name(self.path.name + ".tmp")
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         os.replace(tmp, self.path)
+        self._cache = data
+        try:
+            st = self.path.stat()
+            self._stamp = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            self._stamp = None
+        try:
+            _mark_data_dirty(self.path.name)
+        except Exception:
+            pass
 
     def read(self):
         return self._load()
+
+    def invalidate(self):
+        """Сбросить кэш: нужно после подмены файла извне (например, из GitHub)."""
+        self._cache = None
+        self._stamp = None
 
     async def get(self):
         async with self.lock:
@@ -200,6 +415,92 @@ bans_store = JsonStore(data_path("users_db.json"), dict)
 moders_store = JsonStore(data_path("moderators.json"), list)
 votes_store = JsonStore(data_path("votes.json"), dict)
 seen_store = JsonStore(data_path("seen.json"), dict)
+pending_store = JsonStore(data_path("pending_links.json"), dict)
+setup_store = JsonStore(data_path("setup.json"), dict)
+
+
+# ============================================================
+# ИИ И ПРАВИЛА: ОБЪЕКТЫ
+# ============================================================
+ai_client = None
+rules_base = None
+
+if ai_rules is not None:
+    rules_base = ai_rules.RulesBase(
+        DATA_DIR,
+        url=RULES_URL,
+        api_url=RULES_API_URL,
+        cookies=CS2RED_COOKIES or None,
+        headers=CS2RED_HEADERS,
+        ttl_hours=RULES_TTL_HOURS,
+    )
+    rules_base.load_cache()
+    if AI_ENABLED:
+        ai_client = ai_rules.make_ai_client(
+            AI_PROVIDER,
+            gemini_key=GEMINI_API_KEY,
+            openai_key=AI_API_KEY_ALT,
+            model=AI_MODEL,
+            base_url=AI_BASE_URL,
+            api_url=AI_API_URL,
+            timeout=AI_TIMEOUT,
+            max_output_tokens=AI_MAX_OUTPUT_TOKENS,
+            thinking_level=AI_THINKING_LEVEL,
+        )
+    log(f"🤖 ИИ: {ai_client.status_line() if ai_client else 'выключен'}")
+    log(f"📚 Правила: {rules_base.status_line()}")
+else:
+    log(f"⚠️ ai_rules.py не загружен: {_AI_IMPORT_ERROR}")
+
+# Кольцевой буфер ошибок для ИИ-разбора (последние 60).
+_error_ring = deque(maxlen=60)
+_ai_last_error_report = 0.0
+_ai_ask_last: dict = {}
+
+# Файлы, изменённые с момента последней выгрузки в GitHub.
+_data_dirty: set = set()
+
+
+def _mark_data_dirty(filename: str):
+    """Вызывается из JsonStore._dump: помечает файл к выгрузке. Без I/O."""
+    _data_dirty.add(str(filename))
+
+
+github_sync = None
+if github_sync_module is not None:
+    github_sync = github_sync_module.GitHubSync(
+        GITHUB_TOKEN,
+        GITHUB_REPO,
+        branch=GITHUB_BRANCH,
+        base_path=GITHUB_DATA_PATH,
+    )
+    log(f"☁️ GitHub-хранилище: {github_sync.status_line()}")
+else:
+    log(f"⚠️ github_sync.py не загружен: {_GH_IMPORT_ERROR}")
+
+
+async def pull_data_from_github() -> str:
+    """Подтягивает отсутствующие файлы данных из репозитория при старте."""
+    if github_sync is None or not github_sync.enabled:
+        return "выключено"
+    if api.session is None:
+        return "нет HTTP-сессии"
+    try:
+        pulled = await github_sync.pull(api.session, GITHUB_SYNC_FILES, DATA_DIR,
+                                        overwrite=GITHUB_PULL_OVERWRITE)
+    except Exception as e:
+        await log_error(bot, "pull_data_from_github", e)
+        return f"ошибка: {e}"
+    if not pulled:
+        return "нечего подтягивать"
+    # файлы на диске заменены — сбрасываем кэши хранилищ
+    for store in (links_store, players_store, bans_store, moders_store,
+                  votes_store, seen_store, pending_store, setup_store):
+        try:
+            store.invalidate()
+        except Exception:
+            pass
+    return "подтянуто: " + ", ".join(pulled)
 
 
 def _write_error_to_file(context: str, exc):
@@ -207,7 +508,13 @@ def _write_error_to_file(context: str, exc):
         ts = now_utc().strftime("%Y-%m-%d %H:%M:%S")
         tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)) \
             if isinstance(exc, BaseException) else str(exc)
-        with open(data_path("error_log.txt"), "a", encoding="utf-8") as f:
+        path = data_path("error_log.txt")
+        try:
+            if path.exists() and path.stat().st_size > 1_000_000:
+                path.replace(path.with_name("error_log.old.txt"))
+        except OSError:
+            pass
+        with open(path, "a", encoding="utf-8") as f:
             f.write(f"[{ts}] {context}\n{tb}\n{'=' * 60}\n")
     except Exception as e:
         log(f"⚠️ error_log: {e}")
@@ -221,8 +528,40 @@ NET_ERRORS = (
 )
 
 
+def _remember_error(context: str, exc):
+    """Копит ошибки, чтобы ИИ потом разобрал их пачкой."""
+    if isinstance(exc, BaseException):
+        tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        name = f"{type(exc).__name__}: {exc}"
+    else:
+        tb = str(exc)
+        name = str(exc)
+    _error_ring.append({
+        "time": now_utc().strftime("%d.%m %H:%M:%S"),
+        "ts": time.time(),
+        "context": str(context),
+        "error": name[:500],
+        "traceback": tb[-2000:],
+    })
+
+
+async def ai_log(text: str):
+    """Все логи ИИ уходят в AI_LOG_CHANNEL_ID (и в консоль)."""
+    log(f"🤖 {text}")
+    if not AI_LOG_CHANNEL_ID:
+        return
+    try:
+        channel = bot.get_channel(AI_LOG_CHANNEL_ID)
+    except Exception:
+        channel = None
+    if channel is None:
+        return
+    await safe_send(channel, text[:1900])
+
+
 async def log_error(bot: commands.Bot, context: str, exc):
     _write_error_to_file(context, exc)
+    _remember_error(context, exc)
     log(f"❌ [{context}] {exc}")
     if isinstance(exc, NET_ERRORS):
         return
@@ -240,21 +579,27 @@ async def log_error(bot: commands.Bot, context: str, exc):
 # ============================================================
 # ЗАЩИТА ОТ ФЛУДА (Cloudflare + Discord 429)
 # ============================================================
-_send_semaphore = asyncio.Semaphore(2)
+_send_lock = asyncio.Lock()
 _send_timestamps = deque()
 
 
 async def _rate_limit_send():
-    """Глобальный rate-limit: не более 3 сообщений в секунду."""
-    async with _send_semaphore:
-        now = time.time()
-        while _send_timestamps and now - _send_timestamps[0] > 1.0:
-            _send_timestamps.popleft()
-        if len(_send_timestamps) >= 3:
-            wait = 1.0 - (now - _send_timestamps[0])
-            if wait > 0:
-                await asyncio.sleep(wait)
-        _send_timestamps.append(time.time())
+    """
+    Глобальный rate-limit: не более 3 сообщений в секунду.
+
+    Раньше тут был Semaphore(2) и await asyncio.sleep() между проверкой окна
+    и записью метки — две корутины успевали занять слот и лимит превышался.
+    Теперь окно проверяется и обновляется под одним локом.
+    """
+    async with _send_lock:
+        while True:
+            now = time.time()
+            while _send_timestamps and now - _send_timestamps[0] > 1.0:
+                _send_timestamps.popleft()
+            if len(_send_timestamps) < 3:
+                _send_timestamps.append(now)
+                return
+            await asyncio.sleep(max(0.01, 1.0 - (now - _send_timestamps[0])))
 
 
 async def safe_send(target, *args, retries: int = 5, **kwargs):
@@ -319,7 +664,8 @@ async def run_with_timeout(coro, timeout: float, fallback_msg: str,
     try:
         return await asyncio.wait_for(coro, timeout=timeout)
     except asyncio.TimeoutError:
-        await log_error(bot, context or "run_with_timeout", "TIMEOUT")
+        await log_error(bot, context or "run_with_timeout",
+                        TimeoutError(f"внешний вызов не ответил за {timeout:.0f} сек"))
         await close_interaction(interaction, fallback_msg, ephemeral=False)
         return None
     except Exception as e:
@@ -417,8 +763,11 @@ class API:
         self._clans_cache = {"ts": ts, "data": clans}
         return clans
 
-    async def player_clan(self, steam_id: str):
-        user = await self.cs2red_user(steam_id)
+    async def player_clan(self, steam_id: str, user: dict | None = None):
+        # user передаётся, если вызывающий его уже получил: иначе на каждого
+        # игрока уходит два одинаковых запроса к cs2red.
+        if user is None:
+            user = await self.cs2red_user(steam_id)
         if not user or user.get("_not_found") or not user.get("id"):
             return None
         uid = int(user["id"])
@@ -458,9 +807,17 @@ class API:
         return await self._get_json(f"https://api.steampowered.com/{iface}", params)
 
     async def steam_summary(self, steam_id: str):
+        """
+        dict  — профиль найден;
+        {}    — Steam ответил, но профиля нет (закрытый/несуществующий);
+        None  — ответа не было (сеть, HTTP, отсутствует ключ).
+        Различие нужно, чтобы /link_confirm не молчал вместо ответа игроку.
+        """
         data = await self._steam_get("ISteamUser/GetPlayerSummaries/v2/", {"steam_id": steam_id})
-        players = ((data or {}).get("response") or {}).get("players") or []
-        return players[0] if players else None
+        if data is None:
+            return None
+        players = ((data.get("response") or {}).get("players")) or []
+        return players[0] if players else {}
 
     async def steam_bans(self, steam_id: str) -> dict:
         data = await self._steam_get("ISteamUser/GetPlayerBans/v1/", {"steam_id": steam_id})
@@ -482,16 +839,21 @@ api = API()
 # ============================================================
 # ДОСТУП / ХЕЛПЕРЫ
 # ============================================================
-def is_moderator(user_id: int, guild: discord.Guild) -> bool:
+def is_moderator(user_id: int, guild: discord.Guild | None) -> bool:
+    """Модератор бота: явный список moderators.json или администратор гильдии."""
     if user_id in moders_store.read():
         return True
+    if guild is None:
+        return False
     member = guild.get_member(user_id)
     return bool(member and member.guild_permissions.administrator)
 
 
 def get_all_reviewer_role_ids() -> list:
-    return [ALLOWED_ROLE_ID, REVIEWER_ROLE_ID_2, SPAM_VOTE_ROLE_ID,
-            EXTRA_REVIEWER_ROLE_1, EXTRA_REVIEWER_ROLE_2, EXTRA_REVIEWER_ROLE_3]
+    """Все роли, которые могут рассматривать заявки (включая каждую роль заместителя)."""
+    return [ALLOWED_ROLE_ID, DEPUTY_ROLE_ID, REVIEWER_ROLE_ID_2, SPAM_VOTE_ROLE_ID,
+            EXTRA_REVIEWER_ROLE_1, EXTRA_REVIEWER_ROLE_2, EXTRA_REVIEWER_ROLE_3] \
+        + list(DEPUTY_ROLE_IDS)
 
 
 def _has_any_role(member, role_ids) -> bool:
@@ -508,6 +870,20 @@ def user_can_spam_vote(member: discord.Member) -> bool:
         member, {SPAM_VOTE_ROLE_ID})
 
 
+def user_can_decide_solo(member: discord.Member) -> bool:
+    """
+    Заместитель (DEPUTY_ROLE_ID) и администратор закрывают заявку одним голосом.
+
+    Обычным ревьюерам по-прежнему нужно VOTES_REQUIRED разных голосов —
+    дыра «один человек = два клика» закрыта отдельно, в подсчёте голосов.
+    """
+    if member.guild_permissions.administrator:
+        return True
+    # Учитываем и список ролей, и одиночное значение — на случай старого .env.
+    ids = {rid for rid in (set(DEPUTY_ROLE_IDS) | {DEPUTY_ROLE_ID}) if rid}
+    return _has_any_role(member, ids)
+
+
 def collect_reviewer_ids(guild: discord.Guild) -> set:
     ids = set()
     for rid in get_all_reviewer_role_ids():
@@ -520,29 +896,158 @@ def collect_reviewer_ids(guild: discord.Guild) -> set:
     return ids
 
 
+def has_bypass_role(member) -> bool:
+    """BYPASS_ROLE_ID: таким участникам запрет на заявки не мешает (раньше флаг был мёртвым)."""
+    if not BYPASS_ROLE_ID:
+        return False
+    return any(r.id == BYPASS_ROLE_ID for r in getattr(member, "roles", []))
+
+
+def _clip(text, limit: int = 1024) -> str:
+    text = str(text)
+    return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
+def _code_block(text, limit: int = 1000) -> str:
+    """Пользовательский текст в ```-блок. Обратные кавычки ломали разметку эмбеда."""
+    safe = str(text).replace("`", "'")[:limit]
+    return f"```\n{safe}\n```"
+
+
+STEAM_ID_RE = re.compile(r"(7656119\d{10})")
+
+
+async def resolve_steam_id(raw: str) -> str | None:
+    """
+    SteamID64 из строки: сам ID, ссылка /profiles/<id> или /id/<vanity>.
+    Vanity-ссылка разворачивается через Steam Web API (нужен STEAM_API_KEY).
+    """
+    if not raw:
+        return None
+    text = str(raw).strip()
+    m = STEAM_ID_RE.search(text)
+    if m:
+        return m.group(1)
+    m = re.search(r"/id/([A-Za-z0-9_\-\.]+)", text)
+    if not m:
+        return None
+    key = os.getenv("STEAM_API_KEY")
+    if not key:
+        return None
+    data = await api._get_json("https://api.steampowered.com/ISteamUser/ResolveVanityURL/v1/",
+                               params={"key": key, "vanityurl": m.group(1)})
+    resp = (data or {}).get("response") or {}
+    if resp.get("success") == 1 and resp.get("steamid"):
+        return str(resp["steamid"])
+    return None
+
+
+# Discord ID -> время последнего /link. Свой кулдаун вместо декоратора,
+# иначе роль NO_COOLDOWN_ROLE_ID обойти его не могла.
+_link_last_use: dict = {}
+
+
+def _link_cooldown_left(member) -> float:
+    if member.guild_permissions.administrator:
+        return 0.0
+    if NO_COOLDOWN_ROLE_ID and any(r.id == NO_COOLDOWN_ROLE_ID for r in getattr(member, "roles", [])):
+        return 0.0
+    left = LINK_COOLDOWN_SECONDS - (time.time() - _link_last_use.get(member.id, 0.0))
+    return left if left > 0 else 0.0
+
+
+async def _after_link(i: discord.Interaction, sid: str):
+    """Общий хвост /link и /link_confirm: синхронизация ролей после привязки."""
+    try:
+        s1 = await sync_role_by_id(i.guild, i.user, sid)
+        s2 = await sync_clan_role_by_id(i.guild, i.user, sid)
+        await log_to_channel(i.client, f"🔗 /link - {s1}\n{s2}")
+    except Exception as e:
+        await log_error(i.client, "/link.sync", e)
+
+
+def duplicate_steam_ids() -> dict:
+    """SteamID -> список Discord-аккаунтов, если привязка не уникальна.
+
+    /link такое запрещает, но в базе есть дубли (данные пришли массовым импортом).
+    Пока дубль не разобран руками, роли по нему не синхронизируются: иначе
+    клановую роль получают 2-3 аккаунта.
+    """
+    owners: dict = {}
+    for did, sid in (links_store.read() or {}).items():
+        owners.setdefault(str(sid), []).append(str(did))
+    return {sid: acc for sid, acc in owners.items() if len(acc) > 1}
+
+
+async def prune_votes(days: int = 30) -> int:
+    """Удаляет записи голосований по закрытым заявкам старше N дней."""
+    cutoff = now_utc() - datetime.timedelta(days=days)
+
+    def _prune(db):
+        removed = 0
+        for mid in list(db):
+            entry = db.get(mid)
+            if not isinstance(entry, dict):
+                db.pop(mid, None)
+                removed += 1
+                continue
+            closed_at = entry.get("closed_at")
+            if not closed_at:
+                continue
+            try:
+                when = datetime.datetime.fromisoformat(str(closed_at))
+            except Exception:
+                continue
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=UTC)
+            if when < cutoff:
+                db.pop(mid, None)
+                removed += 1
+        return removed
+
+    return await votes_store.update(_prune)
+
+
 def is_user_blocked(discord_id: int):
+    """
+    Проверяет запрет на подачу заявок.
+
+    Раньше обрабатывались только type="perm" и "temp", поэтому запись
+    type="cooldown" (она реально лежала в users_db.json) игнорировалась.
+    Теперь работает любой тип: perm = навсегда, иначе смотрим на until.
+    """
     db = bans_store.read()
     entry = db.get(str(discord_id))
-    if isinstance(entry, str) or not isinstance(entry, dict):
+    if not isinstance(entry, dict):
         return False, ""
-    typ = entry.get("type", "temp")
     reason = entry.get("reason") or ""
     suffix = f" Причина: {reason}" if reason and reason != "-" else ""
-    if typ == "perm":
+
+    if str(entry.get("type", "")).lower() == "perm":
         return True, "⛔ Вам **перманентно запрещено** подавать заявки." + suffix
-    if typ == "temp":
-        try:
-            until = datetime.datetime.fromisoformat(entry.get("until"))
-        except Exception:
-            return False, ""
-        now = now_utc()
-        if until.tzinfo is None:
-            until = until.replace(tzinfo=UTC)
-        if now < until:
-            rem = until - now
-            h, m = int(rem.seconds // 3600), int((rem.seconds % 3600) // 60)
-            return True, f"🚫 Вам **запрещено** подавать заявки. Через **{h} ч. {m} мин.**" + suffix
-        asyncio.ensure_future(bans_store.update(lambda d: d.pop(str(discord_id), None)))
+
+    until_raw = entry.get("until")
+    if not until_raw:
+        return False, ""
+    try:
+        until = datetime.datetime.fromisoformat(str(until_raw))
+    except Exception:
+        return False, ""
+    if until.tzinfo is None:
+        until = until.replace(tzinfo=UTC)
+
+    now = now_utc()
+    if now < until:
+        # total_seconds(), а не .seconds: для запрета дольше суток остаток врал.
+        h, m = divmod(int((until - now).total_seconds() // 60), 60)
+        return True, f"🚫 Вам **запрещено** подавать заявки. Осталось **{h} ч. {m} мин.**" + suffix
+
+    # срок вышел — убираем запись (планируем только если есть активный loop)
+    try:
+        asyncio.get_running_loop().create_task(
+            bans_store.update(lambda d: d.pop(str(discord_id), None)))
+    except RuntimeError:
+        pass
     return False, ""
 
 
@@ -732,33 +1237,45 @@ async def sync_role_by_id(guild, member, steam_id):
     user = await api.cs2red_user(steam_id)
     if user is None:
         return f"⚠️ {member.display_name}: cs2red не ответил, роль не тронута"
-    if user.get("_not_found"):
-        tn = None
-    else:
-        tn = ROLE_MAP.get(user.get("roleId"))
-    managed = {n for n in ROLE_MAP.values() if n}
-    cur = {r for r in member.roles if r.name in managed}
 
-    if tn is None:
+    cur = {r for r in member.roles if r.name in ROLE_NAMES}
+    role_id = None if user.get("_not_found") else user.get("roleId")
+
+    if role_id is not None and role_id not in ROLE_MAP:
+        # Тут была дыра: неизвестный roleId (7 «Спонсор», 13 «Гл.Модератор»)
+        # давал tn=None, и все управляемые роли снимались каждые 15 минут.
+        return (f"ℹ️ {member.display_name}: roleId={role_id} нет в ROLE_MAP — "
+                f"роли не тронуты (добавь в ROLE_MAP_JSON)")
+
+    if role_id is None or ROLE_MAP[role_id] is None:
         if cur:
             for r in cur:
-                await member.remove_roles(r)
+                try:
+                    await member.remove_roles(r)
+                except discord.Forbidden:
+                    pass
             return f"🔄 {member.display_name}: сняты"
         return f"ℹ️ {member.display_name}: без изменений"
 
-    target = discord.utils.get(guild.roles, name=tn)
+    target_name = ROLE_MAP[role_id]
+    target = resolve_managed_role(guild, target_name)
     if target is None:
-        return f"⚠️ роль '{tn}' не найдена"
+        return f"⚠️ роль '{target_name}' не найдена (проверь ROLE_IDS_JSON)"
 
     if cur == {target}:
-        return f"✅ {member.display_name}: уже '{tn}'"
+        return f"✅ {member.display_name}: уже '{target_name}'"
 
     for r in cur:
         if r != target:
-            await member.remove_roles(r)
+            try:
+                await member.remove_roles(r)
+            except discord.Forbidden:
+                pass
+    if target in member.roles:
+        return f"✅ {member.display_name}: уже '{target_name}'"
     try:
         await member.add_roles(target)
-        return f"✅ {member.display_name}: '{tn}'"
+        return f"✅ {member.display_name}: '{target_name}'"
     except discord.Forbidden:
         return f"❌ нет прав"
 
@@ -782,7 +1299,7 @@ async def sync_clan_role_by_id(guild, member, steam_id):
     if total_members == 0:
         return f"⚠️ {member.display_name}: в /api/clans нет members, роли не тронуты"
 
-    clan = await api.player_clan(steam_id)
+    clan = await api.player_clan(steam_id, user)
     managed = set(CLAN_ROLE_MAP.values())
     held = [r for r in member.roles if r.id in managed]
 
@@ -854,12 +1371,34 @@ async def close_application_thread(thread, closed_by, reason):
 # ============================================================
 # ГОЛОСА
 # ============================================================
-def _get_votes(mid):
-    return votes_store.read().get(str(mid)) or {"accept": 0, "deny": 0, "voters": []}
+def _get_votes(mid) -> dict:
+    """Запись голосования с гарантированными ключами (старые файлы тоже читаются)."""
+    st = votes_store.read().get(str(mid))
+    if not isinstance(st, dict):
+        st = {}
+    st.setdefault("accept", 0)
+    st.setdefault("deny", 0)
+    st.setdefault("voters", [])
+    st.setdefault("accept_voters", [])
+    st.setdefault("deny_voters", [])
+    return st
 
 
 async def _save_votes(mid, st):
     await votes_store.update(lambda d: d.update({str(mid): st}))
+
+
+def render_application_view(mid: int):
+    """
+    Свежий View с актуальными подписями.
+
+    Постоянный View, зарегистрированный через add_view(ApplicationManagement()),
+    один на весь бот, поэтому мутировать его подписи нельзя — иначе на одной
+    заявке появляются счётчики другой.
+    """
+    view = ApplicationManagement()
+    view.update_labels(mid)
+    return view
 
 
 async def _vote(interaction, kind):
@@ -867,48 +1406,107 @@ async def _vote(interaction, kind):
     if not user_can_review(interaction.user):
         await safe_send(interaction.followup, "❌ Нет прав.", ephemeral=True)
         return
-    st = _get_votes(interaction.message.id)
-    if interaction.user.id in st["voters"] and not user_can_spam_vote(interaction.user):
+
+    mid = interaction.message.id
+    st = _get_votes(mid)
+    if st.get("closed"):
+        await safe_send(interaction.followup, "🔒 Заявка уже закрыта.", ephemeral=True)
+        return
+
+    uid = interaction.user.id
+    already = uid in st["voters"]
+    if already and not user_can_spam_vote(interaction.user):
         await safe_send(interaction.followup, "Вы уже голосовали.", ephemeral=True)
         return
-    st[kind] += 1
-    if interaction.user.id not in st["voters"]:
-        st["voters"].append(interaction.user.id)
-    await _save_votes(interaction.message.id, st)
 
-    view = ApplicationManagement()
-    view.update_labels(interaction.message.id)
-    if st[kind] >= VOTES_REQUIRED:
-        embed = interaction.message.embeds[0]
-        status = "Принят" if kind == "accept" else "Отклонен"
-        embed.set_footer(text=f"Quantum • Статус: {status}")
-        for c in view.children:
-            c.disabled = True
-        try:
-            await interaction.message.edit(embed=embed, view=view)
-        except Exception:
-            pass
-        tid = extract_discord_id_from_embed(embed)
-        member = interaction.guild.get_member(tid) if tid else None
-        if kind == "accept" and member and AUTO_ROLE_ID:
-            role_to_give = interaction.guild.get_role(AUTO_ROLE_ID)
-            if role_to_give:
-                try:
-                    await member.add_roles(role_to_give)
-                    await log_to_channel(interaction.client,
-                        f"✅ Заявка принята. {member.mention} получил {role_to_give.mention}")
-                except discord.Forbidden:
-                    pass
-        if member:
-            await log_to_channel(interaction.client,
-                f"{'✅' if kind == 'accept' else '❌'} {member.mention}")
-        if isinstance(interaction.channel, discord.Thread):
-            await close_application_thread(interaction.channel, interaction.user, status)
+    st[kind] = st.get(kind, 0) + 1
+    if not already:
+        st["voters"].append(uid)
+        st["accept_voters" if kind == "accept" else "deny_voters"].append(uid)
+    await _save_votes(mid, st)
+
+    # Решение принимается по числу РАЗНЫХ проголосовавших с каждой стороны.
+    # Раньше считалась сумма нажатий, и один человек с SPAM_VOTE_ROLE закрывал
+    # заявку двумя кликами (в votes.json так и было: deny=2, voters=[1]).
+    # Заместителям и админам достаточно одного голоса — им голосовать не нужно.
+    solo = user_can_decide_solo(interaction.user)
+    needed = 1 if solo else VOTES_REQUIRED
+    if len(st["accept_voters"]) >= needed:
+        decision = "accept"
+    elif len(st["deny_voters"]) >= needed:
+        decision = "deny"
     else:
+        decision = None
+
+    if decision is None:
         try:
+            await interaction.message.edit(view=render_application_view(mid))
+        except Exception as e:
+            log(f"⚠️ _vote: {e}")
+        return
+
+    st["closed"] = True
+    st["result"] = decision
+    st["closed_at"] = now_utc().isoformat()
+    st["closed_by"] = uid
+    await _save_votes(mid, st)
+
+    status = "Принят" if decision == "accept" else "Отклонен"
+    view = render_application_view(mid)
+    for c in view.children:
+        c.disabled = True
+    embed = interaction.message.embeds[0] if interaction.message.embeds else None
+    if embed is not None:
+        embed.set_footer(text=f"Quantum • Статус: {status}")
+    try:
+        if embed is not None:
+            await interaction.message.edit(embed=embed, view=view)
+        else:
             await interaction.message.edit(view=view)
+    except Exception as e:
+        log(f"⚠️ _vote.close: {e}")
+
+    tid = extract_discord_id_from_embed(embed) if embed is not None else 0
+    member = interaction.guild.get_member(tid) if tid else None
+    if decision == "accept" and member and AUTO_ROLE_ID:
+        role_to_give = interaction.guild.get_role(AUTO_ROLE_ID)
+        if role_to_give:
+            try:
+                await member.add_roles(role_to_give)
+                await log_to_channel(interaction.client,
+                    f"✅ Заявка принята. {member.mention} получил {role_to_give.mention}")
+            except discord.Forbidden:
+                pass
+    if member:
+        await log_to_channel(interaction.client,
+            f"{'✅' if decision == 'accept' else '❌'} {member.mention} "
+            f"(за: {len(st['accept_voters'])}, против: {len(st['deny_voters'])})")
+
+    # Карточка решения — в канал логов заявок, в том же виде, что и сама заявка.
+    if embed is not None and APPS_LOG_CHANNEL_ID:
+        try:
+            log_channel = interaction.client.get_channel(APPS_LOG_CHANNEL_ID)
         except Exception:
-            pass
+            log_channel = None
+        if log_channel is not None:
+            if solo:
+                note = (f"{'✅ Принята' if decision == 'accept' else '❌ Отклонена'} — "
+                        f"{interaction.user.mention} (заместитель, единолично)")
+            else:
+                note = (f"{'✅ Принята' if decision == 'accept' else '❌ Отклонена'} — "
+                        f"{interaction.user.mention} "
+                        f"(голоса за/против: {len(st['accept_voters'])}/{len(st['deny_voters'])})")
+            try:
+                card = embed.copy()
+                card.add_field(name="Решение", value=note, inline=False)
+                card.set_footer(text=f"cs2red • Заявки в клан • "
+                                     f"{'Принята' if decision == 'accept' else 'Отклонена'} • "
+                                     f"{_human_time()}")
+                await safe_send(log_channel, embed=card)
+            except Exception as e:
+                log(f"⚠️ карточка решения: {e}")
+    if isinstance(interaction.channel, discord.Thread):
+        await close_application_thread(interaction.channel, interaction.user, status)
 
 
 # ============================================================
@@ -920,13 +1518,18 @@ class ApplicationManagement(discord.ui.View):
 
     def update_labels(self, mid):
         st = _get_votes(mid)
+        accept = len(st.get("accept_voters") or [])
+        deny = len(st.get("deny_voters") or [])
+        closed = bool(st.get("closed"))
         for c in self.children:
             if c.custom_id == "accept_btn":
-                c.label = f"Принять {st['accept']}/{VOTES_REQUIRED}"
+                c.label = f"Принять {accept}/{VOTES_REQUIRED}"
+                c.disabled = closed
             elif c.custom_id == "deny_btn":
-                c.label = f"Отклонить {st['deny']}/{VOTES_REQUIRED}"
+                c.label = f"Отклонить {deny}/{VOTES_REQUIRED}"
+                c.disabled = closed
             elif c.custom_id == "voted_list_btn":
-                c.label = f"👥 {len(st['voters'])}"
+                c.label = f"👥 {len(st.get('voters') or [])}"
 
     @discord.ui.button(label="🙋 Взять", style=discord.ButtonStyle.primary,
                        custom_id="take_btn", row=0)
@@ -936,11 +1539,14 @@ class ApplicationManagement(discord.ui.View):
             await safe_send(i.followup, "❌", ephemeral=True)
             return
         await safe_send(i.followup, f"🙋 Взял {i.user.mention}.")
-        b.disabled = True
         try:
-            await i.message.edit(view=self)
-        except Exception:
-            pass
+            view = render_application_view(i.message.id)
+            for child in view.children:
+                if child.custom_id == "take_btn":
+                    child.disabled = True
+            await i.message.edit(view=view)
+        except Exception as e:
+            log(f"⚠️ take: {e}")
 
     @discord.ui.button(label="Принять 0/2", style=discord.ButtonStyle.success,
                        custom_id="accept_btn", row=0)
@@ -1003,8 +1609,13 @@ class ApplicationManagement(discord.ui.View):
         if not st["voters"]:
             await i.response.send_message("Пусто", ephemeral=True)
             return
-        await i.response.send_message("Голосовали: " + ", ".join(f"<@{u}>" for u in st["voters"]),
-                                      ephemeral=True)
+        def _line(title, ids):
+            if not ids:
+                return f"**{title}:** —"
+            return f"**{title}:** " + ", ".join(f"<@{u}>" for u in ids)
+        await i.response.send_message(
+            _line("За", st.get("accept_voters")) + "\n" + _line("Против", st.get("deny_voters")),
+            ephemeral=True)
 
 
 class TempBanModal(discord.ui.Modal, title="Запрет"):
@@ -1031,6 +1642,65 @@ class TempBanModal(discord.ui.Modal, title="Запрет"):
         await log_to_channel(i.client, f"🚫 temp <@{self.tid}> {hours}ч от {i.user.mention}")
 
 # ============================================================
+# КАРТОЧКА ЗАЯВКИ (вид как в канале заявок)
+# ============================================================
+MSK = datetime.timezone(datetime.timedelta(hours=3))
+
+
+def _human_time() -> str:
+    """«Сегодня, в 14:55» по МСК — как в карточке заявки."""
+    now = now_utc().astimezone(MSK)
+    return f"Сегодня, в {now.strftime('%H:%M')}"
+
+
+def build_application_embed(nickname, steam_id=None, age="", discord_name="",
+                            play_time="", comment="", avatar_url=None,
+                            applicant_mention=None, status=None, decision_note=None):
+    """
+    Карточка заявки: заголовок, ссылки на профили, возраст, Discord, время,
+    комментарий. Служебные поля SteamID и упоминание нужны кнопкам
+    (по упоминанию бот находит, кому выдавать роль), поэтому они остаются.
+    """
+    e = discord.Embed(title="Заявка в клан", color=APPLY_EMBED_COLOR)
+    e.add_field(name="Игрок", value=_clip(nickname, 200), inline=False)
+
+    if steam_id:
+        e.add_field(name="Профиль Steam",
+                    value=f"[перейти](https://steamcommunity.com/profiles/{steam_id})",
+                    inline=False)
+        e.add_field(name="Профиль на сайте",
+                    value=f"[перейти](https://cs2red.ru/profile/{steam_id})", inline=False)
+        e.add_field(name="Статистика",
+                    value=f"[перейти](https://csstats.gg/player/{steam_id})", inline=False)
+    else:
+        e.add_field(name="Профиль Steam", value="не распознан", inline=False)
+
+    e.add_field(name="Возраст", value=_code_block(age), inline=False)
+    e.add_field(name="Discord для связи", value=_code_block(discord_name), inline=False)
+    e.add_field(name="Время в которое удобно играть (по МСК)",
+                value=_code_block(play_time), inline=False)
+    if comment and str(comment).strip():
+        e.add_field(name="Комментарий (не обязательно)",
+                    value=_code_block(comment), inline=False)
+
+    e.add_field(name="SteamID", value=f"`{steam_id}`" if steam_id else "`не распознан`",
+                inline=False)
+    if applicant_mention:
+        e.add_field(name="Discord (упоминание)", value=applicant_mention, inline=False)
+    if decision_note:
+        e.add_field(name="Решение", value=decision_note, inline=False)
+
+    if avatar_url:
+        e.set_thumbnail(url=avatar_url)
+
+    footer = "cs2red • Заявки в клан"
+    if status:
+        footer += f" • {status}"
+    e.set_footer(text=f"{footer} • {_human_time()}")
+    return e
+
+
+# ============================================================
 # МОДАЛЬНОЕ ОКНО ЗАЯВКИ
 # ============================================================
 class QuestionnaireModal(discord.ui.Modal, title="Заявка в клан"):
@@ -1048,44 +1718,30 @@ class QuestionnaireModal(discord.ui.Modal, title="Заявка в клан"):
 
     async def on_submit(self, i):
         await i.response.defer(ephemeral=False)
-        blocked, rt = is_user_blocked(i.user.id)
-        if blocked:
-            await safe_send(i.followup, rt, ephemeral=True)
-            return
-        m = re.search(r"\d{17}", self.steam_input.value.strip())
-        sid = m.group(0) if m else None
-        if sid:
-            steam_url = f"https://steamcommunity.com/profiles/{sid}"
-            cs2red_url = f"https://cs2red.ru/profile/{sid}"
-            csstats_url = f"https://csstats.gg/player/{sid}"
-            sid_d = f"`{sid}`"
-        else:
-            steam_url = cs2red_url = csstats_url = "https://cs2red.ru"
-            sid_d = "`- не распознан -`"
-        e = discord.Embed(title="ЗАЯВКА В КЛАН", color=APPLY_EMBED_COLOR)
-        e.add_field(name="Игрок", value=self.nickname.value, inline=False)
-        e.add_field(name="Steam", value=f"[перейти]({steam_url})", inline=False)
-        e.add_field(name="Сайт", value=f"[перейти]({cs2red_url})", inline=False)
-        e.add_field(name="csstats", value=f"[перейти]({csstats_url})", inline=False)
-        e.add_field(name="Возраст", value=f"```\n{self.age.value}\n```", inline=False)
-        e.add_field(name="Discord", value=f"```\n{i.user.name}\n```", inline=False)
-        e.add_field(name="МСК", value=f"```\n{self.time.value}\n```", inline=False)
-        if self.reason.value and self.reason.value.strip():
-            e.add_field(name="Комментарий", value=f"```\n{self.reason.value}\n```", inline=False)
-        e.add_field(name="SteamID", value=sid_d, inline=False)
-        e.add_field(name="Discord (упоминание)", value=i.user.mention, inline=False)
-        e.set_thumbnail(url=i.user.display_avatar.url)
-        e.set_footer(text=f"{CLAN_NAME} • {utc_stamp()}")
+        if not has_bypass_role(i.user):
+            blocked, rt = is_user_blocked(i.user.id)
+            if blocked:
+                await safe_send(i.followup, rt, ephemeral=True)
+                return
+        sid = await resolve_steam_id(self.steam_input.value)
+        e = build_application_embed(
+            nickname=self.nickname.value,
+            steam_id=sid,
+            age=self.age.value,
+            discord_name=i.user.name,
+            play_time=self.time.value,
+            comment=self.reason.value,
+            avatar_url=i.user.display_avatar.url,
+            applicant_mention=i.user.mention,
+        )
 
         ch = i.guild.get_channel(APPLICATIONS_CHANNEL_ID) if APPLICATIONS_CHANNEL_ID else None
         if ch:
             try:
-                view = ApplicationManagement()
                 msg = await safe_send(ch, content=f"🔔 Новая заявка от {i.user.mention}",
-                                      embed=e, view=view)
+                                      embed=e, view=ApplicationManagement())
                 if msg:
-                    view.update_labels(msg.id)
-                    await msg.edit(view=view)
+                    await msg.edit(view=render_application_view(msg.id))
             except Exception as ex:
                 log(f"⚠️ Канал заявок: {ex}")
 
@@ -1117,19 +1773,20 @@ async def _create_application_thread(i, e):
                         tasks_.append(t.add_user(m))
         for x in range(0, len(tasks_), 20):
             await asyncio.gather(*tasks_[x:x + 20], return_exceptions=True)
-        view = ApplicationManagement()
         msg = await safe_send(t, content=f"{i.user.mention}, ваша заявка на рассмотрении.",
-                              embed=e, view=view)
+                              embed=e, view=ApplicationManagement())
         if msg:
-            view.update_labels(msg.id)
-            await msg.edit(view=view)
+            await msg.edit(view=render_application_view(msg.id))
     except Exception as ex:
         log(f"⚠️ Ветка: {ex}")
 
 
 class ClanSelect(discord.ui.Select):
     def __init__(self):
-        super().__init__(placeholder="Выберите клан", min_values=1, max_values=1,
+        # custom_id обязателен для постоянного View: без него меню перестаёт
+        # работать после рестарта бота и приходится снова писать !setup.
+        super().__init__(custom_id="clan_select", placeholder="Выберите клан",
+                         min_values=1, max_values=1,
                          options=[discord.SelectOption(label=CLAN_NAME,
                                                         description=f"Клан {CLAN_NAME}")])
 
@@ -1146,7 +1803,30 @@ class ClanView(discord.ui.View):
 # ============================================================
 # БОТ
 # ============================================================
-PUBLIC_COMMANDS = {"link", "unlink", "ping", "health", "lookup"}
+PUBLIC_COMMANDS = {"link", "link_confirm", "unlink", "ping", "lookup", "rules", "ask"}
+
+
+async def _global_interaction_check(i: discord.Interaction) -> bool:
+    """
+    Проверка доступа ко всем slash-командам.
+
+    Вызывается ДЕРЕВОМ команд (CommandTree.interaction_check) — это единственное
+    место, где discord.py 2.7.1 спрашивает разрешение перед выполнением команды.
+    Метод interaction_check в классе commands.Bot не вызывается: в библиотеке
+    такого метода нет (проверено по исходникам v2.7.1), поэтому прежний
+    override был мёртвым кодом и не пускал/не пускал никого.
+    """
+    cmd = getattr(i, "command", None)
+    if cmd is None or cmd.name in PUBLIC_COMMANDS:
+        return True
+    if is_moderator(i.user.id, i.guild):
+        return True
+    try:
+        if not i.response.is_done():
+            await i.response.send_message("❌ Нет доступа.", ephemeral=True)
+    except Exception as e:
+        log(f"⚠️ interaction_check: {e}")
+    return False
 
 
 class MyBot(commands.Bot):
@@ -1155,15 +1835,6 @@ class MyBot(commands.Bot):
         intents.members = True
         intents.message_content = True
         super().__init__(command_prefix="!", intents=intents)
-
-    async def interaction_check(self, i):
-        cmd = getattr(i, "command", None)
-        if cmd is None or cmd.name in PUBLIC_COMMANDS:
-            return True
-        if not is_moderator(i.user.id, i.guild) and not i.response.is_done():
-            await i.response.send_message("❌ Нет доступа.", ephemeral=True)
-            return False
-        return True
 
     async def setup_hook(self):
         try:
@@ -1184,9 +1855,30 @@ class MyBot(commands.Bot):
             self.add_view(ApplicationManagement())
             log("✅ ApplicationManagement view добавлен")
 
+            # ВАЖНО: подключаем проверку доступа к дереву команд.
+            # Именно дерево её вызывает; у commands.Bot такого метода нет.
+            self.tree.interaction_check = _global_interaction_check
+            log("✅ Глобальная проверка доступа подключена")
+
+            # Постоянные View: кнопки/меню на старых сообщениях продолжают
+            # работать после перезапуска, поэтому !setup нужен только один раз.
+            self.add_view(ClanView())
+            log("✅ ClanView добавлен (заявки живут после рестарта)")
+
             auto_sync.start()
             activity_tracker.start()
-            log("✅ Все 2 фоновых задачи запущены")
+
+            if rules_base is not None:
+                rules_refresher.start()
+            if ai_client is not None and ai_client.enabled:
+                ai_error_watcher.start()
+
+            if github_sync is not None and github_sync.enabled:
+                status = await pull_data_from_github()
+                log(f"☁️ GitHub при старте: {status}")
+                data_push_loop.start()
+
+            log("✅ Все фоновые задачи запущены")
         except Exception as e:
             log(f"❌ ОШИБКА в setup_hook: {type(e).__name__}: {e}")
             traceback.print_exc()
@@ -1202,17 +1894,31 @@ bot = MyBot()
 
 @bot.tree.error
 async def on_app_command_error(i, err):
-    if isinstance(err, discord.app_commands.CheckFailure):
-        msg = "❌ Нет доступа."
+    """
+    Единый обработчик ошибок команд.
+
+    Раньше здесь обрабатывался только CheckFailure, поэтому на кулдаун
+    (/link) игрок получал «Нет доступа», а на прочие ошибки — вообще ничего:
+    интеракция оставалась без ответа, и Discord показывал «приложение не отвечает».
+    """
+    async def _reply(text: str):
         try:
             if not i.response.is_done():
-                await i.response.send_message(msg, ephemeral=True)
+                await i.response.send_message(text, ephemeral=True)
             else:
-                await safe_send(i.followup, msg, ephemeral=True)
-        except Exception:
-            pass
+                await safe_send(i.followup, text, ephemeral=True)
+        except Exception as e:
+            log(f"⚠️ error-reply: {e}")
+
+    if isinstance(err, app_commands.CommandOnCooldown):
+        await _reply(f"⏱ Слишком часто. Подожди {err.retry_after:.0f} сек.")
         return
-    await log_error(i.client, f"cmd:{i.command}", err)
+    if isinstance(err, app_commands.CheckFailure):
+        await _reply("❌ Нет доступа.")
+        return
+
+    await log_error(i.client, f"cmd:{getattr(i.command, 'name', '?')}", err)
+    await _reply("❌ Внутренняя ошибка. Подробности уже в логе бота.")
 
 
 @bot.event
@@ -1238,46 +1944,273 @@ async def _admin_guard(i):
 # КОМАНДЫ ПРИВЯЗКИ
 # ============================================================
 @bot.tree.command(name="link", description="Привязать SteamID")
-@app_commands.describe(steam_id="SteamID64 (17 цифр)")
-@app_commands.checks.cooldown(1, 30)
+@app_commands.describe(steam_id="SteamID64 (17 цифр) или ссылка на профиль Steam")
 async def link(i, steam_id: str):
-    if not (steam_id.isdigit() and len(steam_id) == 17 and steam_id.startswith("7656119")):
-        await i.response.send_message("❌ Неверный SteamID.", ephemeral=True)
+    """
+    Привязка Steam-аккаунта.
+
+    Раньше команда принимала любой свободный SteamID, поэтому чужой аккаунт
+    можно было присвоить и получить по нему роли клана. Теперь при LINK_VERIFY=1
+    игрок подтверждает владение кодом в нике Steam через /link_confirm.
+    """
+    left = _link_cooldown_left(i.user)
+    if left > 0:
+        await i.response.send_message(f"⏱ Подожди {left:.0f} сек.", ephemeral=True)
         return
+
+    sid = await resolve_steam_id(steam_id)
+    if not sid:
+        await i.response.send_message(
+            "❌ Не понял SteamID. Пришли 17 цифр (`7656119…`) "
+            "или ссылку на профиль Steam.", ephemeral=True)
+        return
+
     await i.response.defer(ephemeral=False)
     try:
         existing = links_store.read()
-        owner = next((d for d, s in existing.items() if s == steam_id), None)
+        owner = next((d for d, s in existing.items() if s == sid), None)
         if owner and int(owner) != i.user.id:
-            await safe_send(i.followup, "❌ SteamID занят.", ephemeral=False)
+            await safe_send(i.followup,
+                "❌ Этот SteamID уже привязан к другому участнику. "
+                "Если это ошибка — напиши администрации.", ephemeral=False)
+            return
+        if existing.get(str(i.user.id)) == sid:
+            await safe_send(i.followup, f"ℹ️ Уже привязано: `{sid}`", ephemeral=False)
             return
 
-        u = await run_with_timeout(
-            api.cs2red_user(steam_id),
-            timeout=CMD_API_TIMEOUT,
-            fallback_msg="⚠️ cs2red не ответил за 30 сек. Попробуй позже или проверь `/health`.",
-            interaction=i,
-            context="/link",
-        )
+        try:
+            u = await asyncio.wait_for(api.cs2red_user(sid), timeout=CMD_API_TIMEOUT)
+        except asyncio.TimeoutError:
+            await safe_send(i.followup,
+                "⚠️ cs2red не ответил за 30 сек. Попробуй позже или проверь `/health`.",
+                ephemeral=False)
+            return
         if u is None:
+            # Раньше тут был молчаливый return, и интеракция висела без ответа.
+            await safe_send(i.followup,
+                "⚠️ cs2red недоступен (сеть или 403). Проверь `/health`.", ephemeral=False)
             return
         if u.get("_not_found"):
-            await safe_send(i.followup, f"❌ Игрок `{steam_id}` не найден на cs2red.", ephemeral=False)
+            await safe_send(i.followup, f"❌ Игрок `{sid}` не найден на cs2red.", ephemeral=False)
             return
 
-        await links_store.update(lambda d: d.update({str(i.user.id): steam_id}))
+        if LINK_VERIFY and not is_moderator(i.user.id, i.guild):
+            if not os.getenv("STEAM_API_KEY"):
+                await safe_send(i.followup,
+                    "❌ Проверка владения Steam недоступна: администратор не задал "
+                    "`STEAM_API_KEY`. Обратись к администрации.", ephemeral=False)
+                return
+            code = f"QNTM-{random.randint(1000, 9999)}"
+            await pending_store.update(lambda d: d.update({str(i.user.id): {
+                "steam_id": sid, "code": code, "created": now_utc().isoformat()}}))
+            _link_last_use[i.user.id] = time.time()
+            await safe_send(i.followup,
+                f"🔐 **Проверка владения аккаунтом**\n"
+                f"1. Steam → профиль → «Изменить профиль».\n"
+                f"2. Поставь **ник** ровно: `{code}`\n"
+                f"3. Сохрани и вызови `/link_confirm` "
+                f"(за {LINK_CODE_TTL_MINUTES} мин).\n"
+                f"4. После проверки верни свой прежний ник.\n\n"
+                f"Так мы убеждаемся, что аккаунт твой, а не чужой: "
+                f"привязка даёт роли клана.", ephemeral=False)
+            return
+
+        await links_store.update(lambda d: d.update({str(i.user.id): sid}))
+        _link_last_use[i.user.id] = time.time()
         await safe_send(i.followup,
-            f"✅ Привязано: `{steam_id}` (ник **{u.get('nick', '-')}**)",
-            ephemeral=False
-        )
-        try:
-            s1 = await sync_role_by_id(i.guild, i.user, steam_id)
-            s2 = await sync_clan_role_by_id(i.guild, i.user, steam_id)
-            await log_to_channel(i.client, f"🔗 /link - {s1}\n{s2}")
-        except Exception as e:
-            await log_error(i.client, "/link.sync", e)
+            f"✅ Привязано: `{sid}` (ник **{u.get('nick', '-')}**)", ephemeral=False)
+        await _after_link(i, sid)
     except Exception as e:
         await log_error(i.client, "/link", e)
+        await close_interaction(i, f"❌ Ошибка: {str(e)[:200]}")
+
+
+@bot.tree.command(name="link_confirm", description="Подтвердить владение Steam-аккаунтом")
+async def link_confirm(i):
+    """Второй шаг /link: сверяет ник в Steam с выданным кодом."""
+    await i.response.defer(ephemeral=False)
+    try:
+        entry = pending_store.read().get(str(i.user.id))
+        if not isinstance(entry, dict) or not entry.get("steam_id"):
+            await safe_send(i.followup, "ℹ️ Нет активной проверки. Сначала `/link`.", ephemeral=True)
+            return
+
+        try:
+            created = datetime.datetime.fromisoformat(str(entry.get("created")))
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=UTC)
+        except Exception:
+            created = None
+        if created and now_utc() - created > datetime.timedelta(minutes=LINK_CODE_TTL_MINUTES):
+            await pending_store.update(lambda d: d.pop(str(i.user.id), None))
+            await safe_send(i.followup, "⌛ Код устарел, начни заново: `/link`.", ephemeral=True)
+            return
+
+        sid = str(entry["steam_id"])
+        code = str(entry["code"])
+
+        try:
+            summ = await asyncio.wait_for(api.steam_summary(sid), timeout=CMD_API_TIMEOUT)
+        except asyncio.TimeoutError:
+            await safe_send(i.followup, "⚠️ Steam не ответил за 30 сек. Попробуй позже.", ephemeral=True)
+            return
+        if summ is None:
+            await safe_send(i.followup,
+                "⚠️ Steam API недоступен. Попробуй позже.", ephemeral=True)
+            return
+        if not summ:
+            await safe_send(i.followup,
+                "❌ Профиль Steam не найден или закрыт. Проверь настройки приватности.",
+                ephemeral=True)
+            return
+
+        nick = str(summ.get("personaname") or "").strip()
+        if nick.casefold() != code.casefold():
+            await safe_send(i.followup,
+                f"❌ В нике Steam сейчас `{nick or '—'}`, а нужен ровно `{code}`. "
+                f"Сохрани ник и вызови `/link_confirm` снова.", ephemeral=True)
+            return
+
+        existing = links_store.read()
+        owner = next((d for d, s in existing.items() if s == sid), None)
+        if owner and int(owner) != i.user.id:
+            await safe_send(i.followup,
+                "❌ Этот SteamID уже привязан к другому участнику.", ephemeral=True)
+            return
+
+        await links_store.update(lambda d: d.update({str(i.user.id): sid}))
+        await pending_store.update(lambda d: d.pop(str(i.user.id), None))
+        _link_last_use[i.user.id] = time.time()
+        await safe_send(i.followup,
+            f"✅ Аккаунт подтверждён и привязан: `{sid}`\n"
+            f"Не забудь вернуть прежний ник в Steam.", ephemeral=False)
+        await _after_link(i, sid)
+    except Exception as e:
+        await log_error(i.client, "/link_confirm", e)
+        await close_interaction(i, f"❌ Ошибка: {str(e)[:200]}")
+
+
+async def strip_managed_roles(member) -> list:
+    """Снимает роли, которыми управляет бот: по ROLE_MAP и CLAN_ROLE_MAP."""
+    managed_names = {n for n in ROLE_MAP.values() if n}
+    managed_ids = set(CLAN_ROLE_MAP.values())
+    removed = []
+    for role in list(member.roles):
+        if role.name in managed_names or role.id in managed_ids:
+            try:
+                await member.remove_roles(role)
+                removed.append(role.name)
+            except discord.Forbidden:
+                pass
+    return removed
+
+
+@bot.tree.command(name="admlink", description="Привязать участника к SteamID вручную (модерация)")
+@app_commands.describe(steam_id="SteamID64 (17 цифр) или ссылка на профиль Steam",
+                       member="Участник Discord, которого привязываем")
+async def admlink(i, steam_id: str, member: discord.Member):
+    """
+    Модераторская привязка: работает как /link, но за другого игрока и без
+    проверки владения Steam — модератор проверил вручную. Роли выдаются сразу.
+    """
+    if not is_moderator(i.user.id, i.guild):
+        await i.response.send_message("❌ Нет доступа. Команда только для модерации.", ephemeral=True)
+        await ai_log(f"🚫 {i.user} пытался вызвать /admlink без прав")
+        return
+
+    await i.response.defer(ephemeral=False)
+    try:
+        sid = await resolve_steam_id(steam_id)
+        if not sid:
+            await safe_send(i.followup,
+                "❌ Не понял SteamID. Нужны 17 цифр (`7656119…`) или ссылка на профиль.",
+                ephemeral=False)
+            return
+
+        try:
+            u = await asyncio.wait_for(api.cs2red_user(sid), timeout=CMD_API_TIMEOUT)
+        except asyncio.TimeoutError:
+            await safe_send(i.followup, "⚠️ cs2red не ответил за 30 сек. Попробуй позже.",
+                            ephemeral=False)
+            return
+        if u is None:
+            await safe_send(i.followup, "⚠️ cs2red недоступен, привязку не делаю (см. `/health`).",
+                            ephemeral=False)
+            return
+        if u.get("_not_found"):
+            await safe_send(i.followup,
+                f"❌ Игрок `{sid}` не найден на cs2red — проверь SteamID.", ephemeral=False)
+            return
+
+        links = links_store.read()
+        old_sid = links.get(str(member.id))
+        prev_owner = next((d for d, s in links.items()
+                           if s == sid and d != str(member.id)), None)
+
+        notes = []
+        if old_sid and old_sid != sid:
+            notes.append(f"у участника было `{old_sid}` — заменено")
+        if prev_owner:
+            await links_store.update(lambda d: d.pop(str(prev_owner), None))
+            notes.append(f"SteamID был привязан к <@{prev_owner}> — перенесён на {member.mention}")
+
+        await links_store.update(lambda d: d.update({str(member.id): sid}))
+        _link_last_use[member.id] = 0.0   # игрок сможет потом сам сделать /link без ожидания
+
+        await safe_send(i.followup,
+            f"✅ {member.mention} привязан к `{sid}` "
+            f"(ник на cs2red: **{u.get('nick', '-')}**)"
+            + ("\nℹ️ " + "; ".join(notes) if notes else ""),
+            ephemeral=False)
+
+        # роли выдаём сразу — игроку ничего делать не нужно
+        s1 = await sync_role_by_id(i.guild, member, sid)
+        s2 = await sync_clan_role_by_id(i.guild, member, sid)
+        await safe_send(i.followup, f"{s1}\n{s2}", ephemeral=False)
+
+        # если SteamID забрали у прежнего владельца — приводим и его роли в порядок
+        if prev_owner:
+            old_member = i.guild.get_member(int(prev_owner))
+            if old_member:
+                try:
+                    os1 = await sync_role_by_id(i.guild, old_member, sid)
+                    os2 = await sync_clan_role_by_id(i.guild, old_member, sid)
+                    await safe_send(i.followup,
+                        f"♻️ Прежний владелец <@{prev_owner}>: {os1}\n{os2}", ephemeral=False)
+                except Exception as e:
+                    await log_error(i.client, "/admlink.previous_owner", e)
+
+        await log_to_channel(i.client,
+            f"🛠️ /admlink: {i.user.mention} привязал {member.mention} к `{sid}` "
+            f"(cs2red: {u.get('nick', '-')})")
+        await ai_log(f"🛠️ /admlink: {i.user} → {member} = `{sid}` — {s1}; {s2}")
+    except Exception as e:
+        await log_error(i.client, "/admlink", e)
+        await close_interaction(i, f"❌ Ошибка: {str(e)[:200]}")
+
+
+@bot.tree.command(name="admunlink", description="Отвязать участника от SteamID (модерация)")
+@app_commands.describe(member="Участник Discord")
+async def admunlink(i, member: discord.Member):
+    if not is_moderator(i.user.id, i.guild):
+        await i.response.send_message("❌ Нет доступа. Команда только для модерации.", ephemeral=True)
+        await ai_log(f"🚫 {i.user} пытался вызвать /admunlink без прав")
+        return
+    await i.response.defer(ephemeral=False)
+    try:
+        rid = await links_store.update(lambda d: d.pop(str(member.id), None))
+        if rid is None:
+            await safe_send(i.followup, "ℹ️ Участник не привязан.", ephemeral=False)
+            return
+        removed = await strip_managed_roles(member)
+        await safe_send(i.followup,
+            f"✅ {member.mention} отвязан от `{rid}`. "
+            f"Снято ролей: {', '.join(removed) if removed else 'нет'}",
+            ephemeral=False)
+        await log_to_channel(i.client, f"🛠️ /admunlink: {i.user.mention} → {member.mention} (`{rid}`)")
+        await ai_log(f"🛠️ /admunlink: {i.user} отвязал {member} от `{rid}`")
+    except Exception as e:
+        await log_error(i.client, "/admunlink", e)
         await close_interaction(i, f"❌ Ошибка: {str(e)[:200]}")
 
 
@@ -1286,19 +2219,11 @@ async def unlink(i):
     await i.response.defer(ephemeral=False)
     try:
         rid = await links_store.update(lambda d: d.pop(str(i.user.id), None))
+        await pending_store.update(lambda d: d.pop(str(i.user.id), None))
         if rid is None:
             await safe_send(i.followup, "ℹ️ Не привязан.", ephemeral=False)
             return
-        managed_n = {n for n in ROLE_MAP.values() if n}
-        managed_i = set(CLAN_ROLE_MAP.values())
-        removed = []
-        for r in i.user.roles:
-            if r.name in managed_n or r.id in managed_i:
-                try:
-                    await i.user.remove_roles(r)
-                    removed.append(r.name)
-                except discord.Forbidden:
-                    pass
+        removed = await strip_managed_roles(i.user)
         await safe_send(i.followup,
             f"✅ Отвязано. Снято: {', '.join(removed) if removed else 'нет'}",
             ephemeral=False
@@ -1318,8 +2243,14 @@ async def sync_all(i):
         if not links:
             await safe_send(i.followup, "ℹ️ Пусто.", ephemeral=False)
             return
+        dups = duplicate_steam_ids()
         res = []
+        if dups:
+            res.append(f"⚠️ Пропущено SteamID с дублями: {len(dups)} "
+                       f"(роли не синхронизирую, разбери руками)")
         for did, sid in links.items():
+            if str(sid) in dups:
+                continue
             m = i.guild.get_member(int(did))
             if m is None:
                 res.append(f"⚠️ {did}: нет")
@@ -1492,8 +2423,11 @@ async def export_members(i):
             if isinstance(sid, str) and sid.isdigit() and len(sid) == 17 and sid.startswith("7656119"):
                 valid[did] = sid
         try:
-            with open(data_path("mass_links.json"), "w", encoding="utf-8") as f:
+            tmp = data_path("mass_links.json")
+            tmp = tmp.with_name(tmp.name + ".tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(valid, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, data_path("mass_links.json"))
         except Exception as e:
             await log_error(i.client, "/export_members.write", e)
             await safe_send(i.followup, f"❌ {e}", ephemeral=False)
@@ -1616,14 +2550,13 @@ async def lookup(i, member: discord.Member):
         if not sid:
             await safe_send(i.followup, "❌ Не привязан", ephemeral=False)
             return
-        u = await run_with_timeout(
-            api.cs2red_user(sid),
-            timeout=CMD_API_TIMEOUT,
-            fallback_msg="⚠️ cs2red не ответил за 30 сек.",
-            interaction=i,
-            context="/lookup",
-        )
+        try:
+            u = await asyncio.wait_for(api.cs2red_user(sid), timeout=CMD_API_TIMEOUT)
+        except asyncio.TimeoutError:
+            await safe_send(i.followup, "⚠️ cs2red не ответил за 30 сек.", ephemeral=False)
+            return
         if u is None:
+            await safe_send(i.followup, "⚠️ cs2red недоступен. Проверь `/health`.", ephemeral=False)
             return
         nick = u.get("nick", "-") if u and not u.get("_not_found") else "-"
         rid = u.get("roleId") if u and not u.get("_not_found") else None
@@ -1642,9 +2575,8 @@ async def lookup(i, member: discord.Member):
 # ============================================================
 # /ping
 # ============================================================
-@bot.tree.command(name="ping", description="Проверить, жив ли бот")
-async def ping(i):
-    await i.response.defer(ephemeral=False)
+def build_ping_embed() -> discord.Embed:
+    """Общий эмбед для /ping и !ping — включая состояние ИИ и ошибок."""
     ws = bot.latency * 1000
     up = int(time.time() - BOT_START_TIME)
     d, r = divmod(up, 86400)
@@ -1659,6 +2591,17 @@ async def ping(i):
     e.add_field(name="⏱ Аптайм", value=f"`{us}`", inline=True)
     e.add_field(name="📡 WS", value=f"`{ws:.0f} мс`", inline=True)
     e.add_field(name="Связь", value=status, inline=False)
+    e.add_field(name="🤖 ИИ",
+                value=ai_client.status_line() if ai_client
+                else "не настроен (нужен GEMINI_API_KEY)", inline=False)
+    e.add_field(name="📚 Правила",
+                value=rules_base.status_line() if rules_base else "модуль ai_rules не загружен",
+                inline=False)
+    e.add_field(name="☁️ GitHub-хранилище",
+                value=github_sync.status_line() if github_sync else "модуль github_sync не загружен",
+                inline=False)
+    recent = [x for x in _error_ring if time.time() - x["ts"] < 3600]
+    e.add_field(name="⚠️ Ошибки за час", value=f"`{len(recent)}`", inline=True)
     e.add_field(name="🍪 Cookies", value=f"`{len(CS2RED_COOKIES)}`", inline=True)
     e.add_field(name="🆔 Guild", value=f"`{GUILD_ID}`", inline=True)
     e.add_field(name="Python",
@@ -1667,7 +2610,13 @@ async def ping(i):
     e.set_footer(text=f"Quantum • {utc_stamp()}")
     if bot.user:
         e.set_thumbnail(url=bot.user.display_avatar.url)
-    await safe_send(i.followup, embed=e, ephemeral=False)
+    return e
+
+
+@bot.tree.command(name="ping", description="Проверить, жив ли бот и ИИ")
+async def ping(i):
+    await i.response.defer(ephemeral=False)
+    await safe_send(i.followup, embed=build_ping_embed(), ephemeral=False)
 
 
 # ============================================================
@@ -1835,6 +2784,36 @@ async def health(i: discord.Interaction):
                 perm_ok = ch.permissions_for(me).send_messages
             add("📢", f"Канал `{name}`",
                 f"`#{ch.name}` ({cid}), send: {'✅' if perm_ok else '❌'}", perm_ok)
+
+    if ai_client is not None:
+        add("🤖", "ИИ (Gemini/LLM)", ai_client.status_line(),
+            bool(ai_client.enabled) and not ai_client.last_error)
+    else:
+        add("🤖", "ИИ (Gemini/LLM)",
+            "выключен: нужен GEMINI_API_KEY или LLM7_API_KEY", False)
+
+    if rules_base is not None and rules_base.ready:
+        add("📚", "База правил", rules_base.status_line(), True)
+    else:
+        add("📚", "База правил",
+            "нет данных — положи rules.txt в DATA_DIR или задай RULES_API_URL", False)
+
+    if github_sync is not None and github_sync.enabled:
+        add("☁️", "GitHub-хранилище", github_sync.status_line(), not github_sync.last_error)
+    else:
+        add("☁️", "Хранение данных",
+            "Persistent Disk (DATA_DIR=/data) или GITHUB_TOKEN+GITHUB_REPO", True)
+
+    try:
+        dups = duplicate_steam_ids()
+        if dups:
+            sample = ", ".join(f"`{s}` ×{len(o)}" for s, o in list(dups.items())[:5])
+            add("🧬", "Дубли SteamID (роли не синхронизируются)",
+                f"{sample}{' …' if len(dups) > 5 else ''}", False)
+        else:
+            add("🧬", "Дубли SteamID", "нет", True)
+    except Exception as e:
+        add("🧬", "Дубли SteamID", f"❌ {e}", False)
 
     last_status = getattr(api, "last_status", None)
     add("📡", "Последний HTTP-статус cs2red",
@@ -2059,6 +3038,212 @@ async def activity_all(i):
 
 
 # ============================================================
+# ИИ-КОМАНДЫ
+# ============================================================
+def _ai_cooldown_left(user_id: int) -> float:
+    left = AI_ASK_COOLDOWN_SECONDS - (time.time() - _ai_ask_last.get(user_id, 0.0))
+    return left if left > 0 else 0.0
+
+
+def _no_rules_hint() -> str:
+    return ("⚠️ База правил пока пуста. Администратору: положи `rules.txt` в папку данных "
+            "(на Render — `/data`) или задай `RULES_API_URL`.")
+
+
+def _fmt_clauses(matches, limit: int = 3, size: int = 700) -> str:
+    lines = []
+    for cid, body, _score in matches[:limit]:
+        lines.append(f"📕 **Пункт {cid}**\n{body[:size]}")
+    return "\n\n".join(lines)
+
+
+async def answer_rules(question: str) -> tuple:
+    """Ответ по правилам. Возвращает (текст для чата, строка для лога ИИ)."""
+    if rules_base is None:
+        return (f"⚠️ Модуль `ai_rules.py` не загружен ({_AI_IMPORT_ERROR}).", "нет модуля ai_rules")
+    if not rules_base.ready:
+        return (_no_rules_hint(), "запрос правил без базы")
+
+    found = rules_base.lookup(question)
+    # Точный пункт отдаём напрямую: это мгновенно и не может соврать.
+    if found["exact"]:
+        cid, body = found["exact"]
+        return (f"📕 **Пункт {cid}**\n{body[:1500]}", f"пункт {cid} найден по базе (без ИИ)")
+
+    if ai_client is None or not ai_client.enabled:
+        if found["matches"]:
+            return ("ИИ выключен, вот что нашлось по словам:\n\n" + _fmt_clauses(found["matches"]),
+                    "поиск по словам, ИИ выключен")
+        return ("📕 Точного пункта в правилах не нашёл. Укажи номер, например `2.2`, "
+                "или переформулируй вопрос.", "совпадений нет, ИИ выключен")
+
+    context = rules_base.context_for(question)
+    prompt = ai_rules.build_rules_prompt(question, context, rules_base.clause_ids())
+    text, meta = await ai_client.ask(api.session, prompt, system=ai_rules.RULES_SYSTEM)
+    if text:
+        return (f"🤖 {text[:1800]}", f"ответ ИИ за {meta['latency']:.1f} с")
+    if found["matches"]:
+        return ("ИИ недоступен, вот ближайшие пункты по словам:\n\n"
+                + _fmt_clauses(found["matches"]), f"ИИ недоступен: {meta['error']}")
+    return (f"⚠️ ИИ недоступен: {meta['error'][:200]}", f"ИИ недоступен: {meta['error']}")
+
+
+async def answer_general(question: str) -> tuple:
+    """Свободный вопрос к ИИ (правила подмешиваются как контекст)."""
+    if ai_client is None or not ai_client.enabled:
+        return ("⚠️ ИИ не настроен: администратору нужно добавить `GEMINI_API_KEY`.",
+                "ИИ выключен")
+    context = rules_base.context_for(question, limit=4) if (rules_base and rules_base.ready) else ""
+    prompt = (f"КОНТЕКСТ (правила проекта cs2red.ru, может быть не по теме):\n{context}\n\n"
+              f"ВОПРОС: {question}\n\n"
+              f"Ответь кратко. Если вопрос про правила — ссылайся на номера пунктов, "
+              f"если нет — просто помоги по существу.")
+    text, meta = await ai_client.ask(api.session, prompt, system=ai_rules.ASK_SYSTEM)
+    if text:
+        return (f"🤖 {text[:1800]}", f"ответ ИИ за {meta['latency']:.1f} с")
+    return (f"⚠️ ИИ недоступен: {meta['error'][:200]}", f"ошибка ИИ: {meta['error']}")
+
+
+def ai_status_text() -> str:
+    """Текст для /ai_status и !ai_status (без обращения к Discord)."""
+    lines = ["🤖 **Состояние ИИ**"]
+    lines.append(f"• клиент: {ai_client.status_line() if ai_client else 'выключен'}")
+    lines.append(f"• правила: {rules_base.status_line() if rules_base else 'нет модуля ai_rules'}")
+    if _AI_IMPORT_ERROR:
+        lines.append(f"• ошибка загрузки модуля: `{_AI_IMPORT_ERROR}`")
+    lines.append(f"• канал логов ИИ: <#{AI_LOG_CHANNEL_ID}>" if AI_LOG_CHANNEL_ID
+                 else "• канал логов ИИ: не задан")
+    lines.append(f"• хранилище данных: "
+                 f"{github_sync.status_line() if github_sync else 'модуль github_sync не загружен'}")
+    lines.append(f"• DATA_DIR: `{DATA_DIR}`")
+    lines.append(f"• разбор ошибок: {'включён' if AI_ERROR_ANALYSIS else 'выключен'}, "
+                 f"каждые {AI_ERROR_INTERVAL_MINUTES} мин")
+    lines.append(f"• ошибок в буфере: `{len(_error_ring)}`")
+    tail = list(_error_ring)[-5:]
+    if tail:
+        lines.append("• последние:")
+        lines.extend(f"   `{e['time']}` {e['context']}: {e['error'][:110]}" for e in tail)
+    else:
+        lines.append("• последних ошибок нет")
+    return "\n".join(lines)
+
+
+@bot.tree.command(name="rules", description="Спросить про правила cs2red (номер пункта или вопрос)")
+@app_commands.describe(question="Например: 2.2 или «что будет за баги карты»")
+async def rules_cmd(i, question: str):
+    left = _ai_cooldown_left(i.user.id)
+    if left > 0:
+        await i.response.send_message(f"⏱ Подожди {left:.0f} сек.", ephemeral=True)
+        return
+    await i.response.defer(ephemeral=False)
+    _ai_ask_last[i.user.id] = time.time()
+    try:
+        answer, logline = await answer_rules(question)
+        await safe_send(i.followup, answer, ephemeral=False)
+        await ai_log(f"📕 /rules «{question[:120]}» — {i.user} → {logline}")
+    except Exception as e:
+        await log_error(i.client, "/rules", e)
+        await close_interaction(i, f"❌ Ошибка: {str(e)[:200]}")
+
+
+@bot.tree.command(name="ask", description="Задать вопрос ИИ-помощнику")
+@app_commands.describe(question="Любой вопрос по игре, клану или боту")
+async def ask_cmd(i, question: str):
+    left = _ai_cooldown_left(i.user.id)
+    if left > 0:
+        await i.response.send_message(f"⏱ Подожди {left:.0f} сек.", ephemeral=True)
+        return
+    await i.response.defer(ephemeral=False)
+    _ai_ask_last[i.user.id] = time.time()
+    try:
+        answer, logline = await answer_general(question)
+        await safe_send(i.followup, answer, ephemeral=False)
+        await ai_log(f"💬 /ask «{question[:120]}» — {i.user} → {logline}")
+    except Exception as e:
+        await log_error(i.client, "/ask", e)
+        await close_interaction(i, f"❌ Ошибка: {str(e)[:200]}")
+
+
+@bot.tree.command(name="ai_status", description="Состояние ИИ, правил и последние ошибки")
+async def ai_status_cmd(i):
+    await i.response.defer(ephemeral=False)
+    await safe_send(i.followup, ai_status_text(), ephemeral=False)
+
+
+# ---------- префиксные версии ----------
+@bot.command(name="ping")
+async def ping_prefix(ctx):
+    """!ping — то же, что /ping."""
+    await safe_send(ctx.channel, embed=build_ping_embed())
+
+
+@bot.command(name="rules")
+async def rules_prefix(ctx, *, question: str = ""):
+    """!rules 2.2 — вопрос по правилам."""
+    if not question.strip():
+        await safe_send(ctx.channel, "Использование: `!rules 2.2` или `!rules что будет за читы`")
+        return
+    left = _ai_cooldown_left(ctx.author.id)
+    if left > 0:
+        await safe_send(ctx.channel, f"⏱ {ctx.author.mention}, подожди {left:.0f} сек.")
+        return
+    _ai_ask_last[ctx.author.id] = time.time()
+    try:
+        answer, logline = await answer_rules(question)
+        await safe_send(ctx.channel, answer)
+        await ai_log(f"📕 !rules «{question[:120]}» — {ctx.author} → {logline}")
+    except Exception as e:
+        await log_error(ctx.bot, "!rules", e)
+        await safe_send(ctx.channel, f"❌ Ошибка: {str(e)[:200]}")
+
+
+@bot.command(name="ask")
+async def ask_prefix(ctx, *, question: str = ""):
+    """!ask <вопрос> — свободный вопрос к ИИ."""
+    if not question.strip():
+        await safe_send(ctx.channel, "Использование: `!ask как вступить в клан?`")
+        return
+    left = _ai_cooldown_left(ctx.author.id)
+    if left > 0:
+        await safe_send(ctx.channel, f"⏱ {ctx.author.mention}, подожди {left:.0f} сек.")
+        return
+    _ai_ask_last[ctx.author.id] = time.time()
+    try:
+        answer, logline = await answer_general(question)
+        await safe_send(ctx.channel, answer)
+        await ai_log(f"💬 !ask «{question[:120]}» — {ctx.author} → {logline}")
+    except Exception as e:
+        await log_error(ctx.bot, "!ask", e)
+        await safe_send(ctx.channel, f"❌ Ошибка: {str(e)[:200]}")
+
+
+@bot.command(name="ai_status")
+async def ai_status_prefix(ctx):
+    """!ai_status — только для модераторов."""
+    if not is_moderator(ctx.author.id, ctx.guild):
+        await safe_send(ctx.channel, "❌ Нет доступа.")
+        return
+    await safe_send(ctx.channel, ai_status_text())
+
+
+@bot.command(name="ai_scan")
+async def ai_scan_prefix(ctx):
+    """!ai_scan — принудительно обновить правила и разобрать ошибки."""
+    if not is_moderator(ctx.author.id, ctx.guild):
+        await safe_send(ctx.channel, "❌ Нет доступа.")
+        return
+    await safe_send(ctx.channel, "⏳ Обновляю правила и разбираю ошибки…")
+    status = await refresh_rules_once()
+    await ai_log(f"📚 Правила обновлены вручную ({ctx.author}): {status}")
+    report = await analyze_errors_once()
+    if report:
+        await ai_log(report[:1900])
+        await safe_send(ctx.channel, "✅ Готово, отчёт в канале логов ИИ.")
+    else:
+        await safe_send(ctx.channel, "✅ Новых ошибок для разбора нет.")
+
+
+# ============================================================
 # !setup — обновлённый текст
 # ============================================================
 @bot.command()
@@ -2089,7 +3274,23 @@ async def setup(ctx):
     )
     v = ClanView()
     v.add_item(discord.ui.Button(label=CLAN_NAME, url=CLAN_URL, row=1))
-    await safe_send(ctx.channel, embed=e, view=v)
+
+    # Если сообщение с заявками в этом канале уже есть — обновляем его.
+    # Вместе с постоянным ClanView это значит: !setup нужен один раз, и
+    # после перезапуска бота кнопки продолжают работать.
+    old_id = setup_store.read().get(str(ctx.channel.id))
+    if old_id:
+        try:
+            msg = await ctx.channel.fetch_message(int(old_id))
+            await msg.edit(embed=e, view=v)
+            await ctx.send("✅ Сообщение с заявками обновлено.", delete_after=10)
+            return
+        except Exception as e:
+            log(f"⚠️ !setup: не обновил прежнее сообщение: {e}")
+
+    msg = await safe_send(ctx.channel, embed=e, view=v)
+    if msg:
+        await setup_store.update(lambda d: d.update({str(ctx.channel.id): msg.id}))
 
 
 # ============================================================
@@ -2116,6 +3317,10 @@ async def activity_tracker():
                     n2s[u["nick"]] = sid
                     db.setdefault(sid, {})["cs2red_nick"] = u["nick"]
             await players_store.save(db)
+        # Чистим seen от ников, которых нет в текущем онлайне, иначе файл растёт вечно.
+        for nick in list(seen):
+            if nick != "_seeded" and nick not in online:
+                seen.pop(nick, None)
         now = now_utc().isoformat()
         matched = 0
         for nick, secs in online.items():
@@ -2261,8 +3466,7 @@ async def build_auto_sync_embeds(guild: discord.Guild) -> list:
                            description="Все участники авторизованы ✅",
                            color=0x000000, timestamp=now_utc())
 
-    embeds.append(e2)
-    return embeds
+    return embeds, e2
 
 
 @tasks.loop(minutes=SYNC_INTERVAL_MINUTES)
@@ -2274,7 +3478,14 @@ async def auto_sync():
         if not links or guild is None:
             return
 
+        dups = duplicate_steam_ids()
+        if dups:
+            log("⚠️ auto_sync: SteamID с несколькими привязками, роли не трогаю: "
+                + ", ".join(dups))
+
         for did, sid in links.items():
+            if str(sid) in dups:
+                continue
             m = guild.get_member(int(did))
             if m is None:
                 continue
@@ -2286,15 +3497,31 @@ async def auto_sync():
             await asyncio.sleep(REQUEST_DELAY)
 
         try:
+            removed = await prune_votes()
+            if removed:
+                log(f"🧹 votes.json: удалено записей {removed}")
+        except Exception as e:
+            await log_error(bot, "auto_sync.prune_votes", e)
+
+        try:
+            sync_embeds, unlinked_embed = await build_auto_sync_embeds(guild)
+
             channel = bot.get_channel(LOG_CHANNEL_ID)
             if channel is not None:
-                embeds = await build_auto_sync_embeds(guild)
-                for emb in embeds:
+                for emb in sync_embeds:
                     try:
                         await safe_send(channel, embed=emb)
                     except Exception as e:
                         await log_error(bot, "auto_sync.report.embed", e)
                     await asyncio.sleep(2.0)
+
+            # «Кто не привязан через /link» — в отдельный канал
+            unlinked_channel = bot.get_channel(UNLINKED_CHANNEL_ID) if UNLINKED_CHANNEL_ID else None
+            if unlinked_channel is not None and unlinked_embed is not None:
+                try:
+                    await safe_send(unlinked_channel, embed=unlinked_embed)
+                except Exception as e:
+                    await log_error(bot, "auto_sync.report.unlinked", e)
         except Exception as e:
             await log_error(bot, "auto_sync.report", e)
 
@@ -2311,6 +3538,127 @@ async def auto_sync_error(err):
 async def before_auto_sync():
     await bot.wait_until_ready()
     await asyncio.sleep(random.randint(0, 120))
+
+
+# ============================================================
+# ИИ: ОБНОВЛЕНИЕ ПРАВИЛ И РАЗБОР ОШИБОК
+# ============================================================
+class _NoSession:
+    """Заглушка HTTP-сессии: локальный rules.txt читается без сети."""
+
+    def get(self, *args, **kwargs):
+        raise RuntimeError("HTTP-сессия ещё не создана")
+
+
+async def refresh_rules_once() -> str:
+    """Разовое обновление базы правил. Возвращает статус для лога."""
+    if rules_base is None:
+        return f"модуль ai_rules не загружен: {_AI_IMPORT_ERROR}"
+    try:
+        count, status = await rules_base.refresh(api.session or _NoSession())
+        return status
+    except Exception as e:
+        await log_error(bot, "refresh_rules_once", e)
+        return f"ошибка обновления: {e}"
+
+
+@tasks.loop(hours=RULES_TTL_HOURS)
+async def rules_refresher():
+    status = await refresh_rules_once()
+    await ai_log(f"📚 Правила обновлены: {status}")
+
+
+@rules_refresher.before_loop
+async def before_rules_refresher():
+    await bot.wait_until_ready()
+    await asyncio.sleep(5)
+
+
+def _bot_diagnostics() -> str:
+    """Сжатая сводка состояния бота — уходит в промпт ИИ вместе с ошибками."""
+    lines = [f"аптайм {int(time.time() - BOT_START_TIME)} c, WS {bot.latency * 1000:.0f} мс"]
+    for name, task_obj in (("auto_sync", auto_sync), ("activity_tracker", activity_tracker),
+                           ("rules_refresher", rules_refresher)):
+        try:
+            lines.append(f"задача {name}: {'работает' if task_obj.is_running() else 'ОСТАНОВЛЕНА'}")
+        except Exception as e:
+            lines.append(f"задача {name}: нет данных ({e})")
+    for name, store in (("links", links_store), ("players", players_store),
+                        ("bans", bans_store), ("votes", votes_store)):
+        try:
+            data = store.read()
+            lines.append(f"{name}: записей {len(data)}")
+        except Exception as e:
+            lines.append(f"{name}: ошибка чтения {e}")
+    try:
+        lines.append(f"дубли SteamID: {len(duplicate_steam_ids())}")
+    except Exception as e:
+        lines.append(f"дубли SteamID: ошибка {e}")
+    lines.append(f"последний HTTP cs2red: {getattr(api, 'last_status', None)}")
+    lines.append(f"правила: {rules_base.status_line() if rules_base else 'нет модуля'}")
+    lines.append(f"ИИ: {ai_client.status_line() if ai_client else 'выключен'}")
+    return "\n".join(lines)
+
+
+async def analyze_errors_once() -> str:
+    """Разбирает накопленные ошибки через ИИ. Возвращает текст для лога."""
+    global _ai_last_error_report
+    if ai_client is None or not ai_client.enabled:
+        return "ИИ выключен"
+    fresh = [e for e in list(_error_ring) if e["ts"] > _ai_last_error_report]
+    if not fresh:
+        return ""
+    _ai_last_error_report = max(e["ts"] for e in fresh)
+    prompt = ai_rules.build_error_prompt(fresh, _bot_diagnostics())
+    text, meta = await ai_client.ask(api.session, prompt, system=ai_rules.SRE_SYSTEM,
+                                     max_output_tokens=1200)
+    if text:
+        return (f"🧠 **Разбор ошибок** ({len(fresh)} шт., {meta['latency']:.1f} с, "
+                f"модель {ai_client.model})\n\n{text}")
+    return (f"⚠️ ИИ не разобрал ошибки ({meta['error'][:200]}). "
+            f"Ошибок в пачке: {len(fresh)}")
+
+
+@tasks.loop(minutes=AI_ERROR_INTERVAL_MINUTES)
+async def ai_error_watcher():
+    if not AI_ERROR_ANALYSIS:
+        return
+    try:
+        report = await analyze_errors_once()
+        if report:
+            await ai_log(report[:1900])
+    except Exception as e:
+        await log_error(bot, "ai_error_watcher", e)
+
+
+@ai_error_watcher.before_loop
+async def before_ai_error_watcher():
+    await bot.wait_until_ready()
+    await asyncio.sleep(60)
+
+
+@tasks.loop(seconds=GITHUB_PUSH_INTERVAL_SECONDS)
+async def data_push_loop():
+    """Выгружает изменённые JSON-базы в GitHub, чтобы они не терялись на Render."""
+    if github_sync is None or not github_sync.enabled or not _data_dirty:
+        return
+    files = sorted(_data_dirty)
+    _data_dirty.clear()
+    try:
+        pushed, status = await github_sync.push(api.session or _NoSession(), files, DATA_DIR)
+        if pushed:
+            await ai_log(f"☁️ GitHub: {status}")
+        elif "не удалось" in status:
+            await ai_log(f"⚠️ GitHub: {status}")
+    except Exception as e:
+        await log_error(bot, "data_push_loop", e)
+        _data_dirty.update(files)   # вернём в очередь, попробуем в следующий раз
+
+
+@data_push_loop.before_loop
+async def before_data_push_loop():
+    await bot.wait_until_ready()
+    await asyncio.sleep(30)
 
 
 # ============================================================
@@ -2333,9 +3681,10 @@ def run_health_server():
 # ============================================================
 if __name__ == "__main__":
     if not DISCORD_TOKEN:
-        log("❌ DISCORD_TOKEN не задан!")
-    elif GUILD_ID == 0:
-        log("❌ GUILD_ID не задан!")
-    else:
-        threading.Thread(target=run_health_server, daemon=True).start()
-        bot.run(DISCORD_TOKEN)
+        log("❌ DISCORD_TOKEN не задан! Добавь его в переменные окружения.")
+        sys.exit(1)
+    if GUILD_ID == 0:
+        log("❌ GUILD_ID не задан! Добавь его в переменные окружения.")
+        sys.exit(1)
+    threading.Thread(target=run_health_server, daemon=True).start()
+    bot.run(DISCORD_TOKEN)

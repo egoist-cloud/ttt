@@ -1,31 +1,40 @@
-import json, re
+# -*- coding: utf-8 -*-
+"""
+Безопасный ремонт JSON-баз.
 
-FILES = ["links.json", "mass_links.json"]
+Что изменилось: прежняя версия фильтровала значения по «17 цифр» и тем самым
+БЕЗВОЗВРАТНО выбрасывала ники из mass_links.json (97 записей). Теперь ничего
+не фильтруется — только убираются висячие запятые, а исходник сохраняется в .bak.
 
-def repair_text(raw):
-    # Заменяем: конец строки с "..." за которым идёт строка с "ключ": на ","
-    fixed = re.sub(r'(")\s*\n(\s*")', r'",\n\2', raw)
-    # убираем лишние запятые перед закрывающей }
-    fixed = re.sub(r',\s*}', '}', fixed)
-    return fixed
+Запуск:  python fix_json.py
+"""
+import json
+import re
+import shutil
+import sys
+from pathlib import Path
 
-for path in FILES:
+FILES = ["links.json", "mass_links.json", "players_db.json", "moderators.json",
+         "users_db.json", "votes.json", "seen.json", "pending_links.json"]
+
+for name in FILES:
+    path = Path(name)
+    if not path.exists():
+        continue
+    raw = path.read_text(encoding="utf-8")
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            raw = f.read()
-        data = json.loads(repair_text(raw))
-    except Exception as e:
-        print(f"!!! {path}: {e}")
+        json.loads(raw)
+        print(f"OK      {name}")
         continue
-    if not isinstance(data, dict):
-        print(f"!!! {path}: не объект")
+    except json.JSONDecodeError as e:
+        print(f"BROKEN  {name}: {e.msg} (строка {e.lineno})")
+    fixed = re.sub(r",(\s*[}\]])", r"\1", raw)
+    try:
+        json.loads(fixed)
+    except json.JSONDecodeError as e:
+        print(f"        не починил автоматически: {e.msg} (строка {e.lineno})")
+        print("        правь вручную, файл не тронут")
         continue
-    cleaned = {}
-    for k, v in data.items():
-        vs = str(v).strip()
-        if vs.isdigit() and len(vs) == 17:
-            cleaned.setdefault(k, vs)
-    # сохраняем НОВЫЙ файл (не трогаем .bak)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(cleaned, f, ensure_ascii=False, indent=2)
-    print(f"{path}: отремонтировано, записей {len(cleaned)}")
+    shutil.copyfile(path, path.with_suffix(path.suffix + ".bak"))
+    path.write_text(fixed, encoding="utf-8")
+    print(f"FIXED   {name} (исходник сохранён в {path.name}.bak)")
