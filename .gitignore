@@ -1,0 +1,33 @@
+# --- секреты: никогда не коммитить ---
+.env
+.env.*
+!.env.example
+
+# --- служебное ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+dist/
+*.zip
+.idea/
+.vscode/
+mass_links.json.bak
+error_log.txt
+error_log.old.txt
+
+# --- ДАННЫЕ БОТА ---
+# Файлы ниже содержат живые SteamID и Discord ID реальных людей.
+# Раскомментируй, если репозиторий публичный и ты вынес данные на
+# постоянный диск Render (DATA_DIR=/data + Persistent Disk).
+# Внимание: тогда при первом деплое база будет пустой — её нужно
+# загрузить на диск один раз.
+# links.json
+# mass_links.json
+# players_db.json
+# moderators.json
+# users_db.json
+# votes.json
+# seen.json
+# pending_links.json
