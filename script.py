@@ -277,7 +277,46 @@ BOT_START_TIME = time.time()
 
 CMD_API_TIMEOUT = 30.0
 
-CS2RED_COOKIES = {k: v for k, v in {
+# Если админка cs2red отдаёт 403 (обычно протухли cookie), столько секунд
+# не дёргаем её повторно и не заливаем лог одинаковыми строками.
+CS2RED_AUTH_BLOCK_SECONDS = max(30, _env_int("CS2RED_AUTH_BLOCK_SECONDS", 600))
+
+def _parse_cookies(raw: str) -> dict:
+    """
+    Разбирает куки в двух форматах:
+
+      * строка Cookie из браузера:      token=abc; bh=def; _yasc=ghi
+      * файл cookies.txt (Netscape):    .cs2red.ru  TRUE  /  TRUE  1806234351  token  abc
+
+    Нужно для CS2RED_COOKIE_STRING: не раскладывать 16 значений по переменным,
+    а вставить всё одной строкой.
+    """
+    result: dict = {}
+    for line in (raw or "").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "\t" in line:
+            parts = line.split("\t")
+            if len(parts) >= 7 and parts[5].strip() and parts[6].strip():
+                result[parts[5].strip()] = parts[6].strip()
+            continue
+        for part in line.split(";"):
+            part = part.strip()
+            if not part or "=" not in part:
+                continue
+            name, _, value = part.partition("=")
+            name, value = name.strip(), value.strip()
+            if name and value:
+                result[name] = value
+    return result
+
+
+# Всё, что удалось собрать из строки Cookie (или файла cookies.txt).
+_cookies_from_string = _parse_cookies(os.getenv("CS2RED_COOKIE_STRING", ""))
+
+# Отдельные переменные: если заданы, они важнее строки.
+_cookie_env = {
     "token": os.getenv("CS2RED_TOKEN", ""),
     "bh": os.getenv("CS2RED_BH", ""),
     "_yasc": os.getenv("CS2RED_YASC", ""),
@@ -294,7 +333,14 @@ CS2RED_COOKIES = {k: v for k, v in {
     "_ym_d": os.getenv("CS2RED_YM_D", ""),
     "_ym_isad": os.getenv("CS2RED_YM_ISAD", ""),
     "ymex": os.getenv("CS2RED_YMEX", ""),
-}.items() if v}
+}
+# Строка Cookie важнее отдельных переменных: если она задана, старые
+# значения CS2RED_* (например, протухшие) её не перебьют. Отдельные
+# переменные только дополняют то, чего в строке нет.
+CS2RED_COOKIES = {k: v for k, v in _cookies_from_string.items() if v}
+for _cookie_name, _cookie_value in _cookie_env.items():
+    if _cookie_value and not CS2RED_COOKIES.get(_cookie_name):
+        CS2RED_COOKIES[_cookie_name] = _cookie_value
 
 CS2RED_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -758,6 +804,10 @@ class API:
         self.sem = asyncio.Semaphore(4)
         self._clans_cache = {"ts": 0.0, "data": None}
         self.last_status: int | None = None
+        # 403 от админки: не долбим её и не спамим лог
+        self._auth_block_until = 0.0
+        self._last_403_log = 0.0
+        self._403_count = 0
 
     async def start(self):
         connector = aiohttp.TCPConnector(
@@ -776,8 +826,33 @@ class API:
         if self.session and not self.session.closed:
             await self.session.close()
 
-    async def _get_json(self, url, params=None):
+    def auth_blocked(self) -> bool:
+        """Админка отдавала 403 — ждём, пока обновят cookie, и не тратим запросы."""
+        return time.time() < self._auth_block_until
+
+    def _note_403(self, url: str):
+        """
+        403 почти всегда означает протухшие cookie админки.
+
+        Раньше каждая такая ошибка писалась в лог отдельной строкой, и при
+        обходе 130 привязок лог заливался сотнями одинаковых строк. Теперь
+        пишем не чаще раза в минуту и ставим паузу на админские запросы.
+        """
+        now = time.time()
+        self._403_count += 1
+        if "/admin/" in url:
+            self._auth_block_until = now + CS2RED_AUTH_BLOCK_SECONDS
+        if now - self._last_403_log > 60:
+            self._last_403_log = now
+            log(f"🔴 403 на {url} (всего {self._403_count} раз за сессию). "
+                f"Скорее всего протухли cookie админки cs2red — обнови "
+                f"CS2RED_TOKEN, CS2RED_BH, CS2RED_YASC, CS2RED_BROWSER_ID "
+                f"и CS2RED_YANDEXUID в Render")
+
+    async def _get_json(self, url, params=None, force: bool = False):
         if not self.session:
+            return None
+        if not force and "/admin/" in url and self.auth_blocked():
             return None
         for attempt in range(2):
             try:
@@ -785,7 +860,7 @@ class API:
                     async with self.session.get(url, params=params) as r:
                         self.last_status = r.status
                         if r.status == 403:
-                            log(f"🔴 403 на {url}")
+                            self._note_403(url)
                             return None
                         if r.status == 429:
                             await asyncio.sleep(2)
@@ -2347,6 +2422,9 @@ async def sync_all(i):
             res.append(f"⚠️ Пропущено SteamID с дублями: {len(dups)} "
                        f"(роли не синхронизирую, разбери руками)")
         for did, sid in links.items():
+            if api.auth_blocked():
+                res.append("⚠️ Прервано: админка cs2red отдаёт 403 — обнови CS2RED_*")
+                break
             if str(sid) in dups:
                 continue
             m = i.guild.get_member(int(did))
@@ -2766,7 +2844,7 @@ async def health(i: discord.Interaction):
     try:
         t0 = time.perf_counter()
         test = await api._get_json("https://cs2red.ru/api/admin/users",
-                                   params={"begin": 0, "count": 1})
+                                   params={"begin": 0, "count": 1}, force=True)
         dt = (time.perf_counter() - t0) * 1000
         if test is not None and test.get("success") is not None:
             add("🍪", "cs2red /admin/users",
@@ -2886,6 +2964,11 @@ async def health(i: discord.Interaction):
     if ai_client is not None:
         add("🤖", "ИИ (Gemini/LLM)", ai_client.status_line(),
             bool(ai_client.enabled) and not ai_client.last_error)
+        if api.auth_blocked():
+            left = int(api._auth_block_until - time.time())
+            add("⏸", "Запросы к админке cs2red",
+                f"на паузе ещё {left // 60} мин. {left % 60} сек. "
+                f"(были 403 — обнови CS2RED_*)", False)
     else:
         add("🤖", "ИИ (Gemini/LLM)",
             "выключен: нужен GEMINI_API_KEY или LLM7_API_KEY", False)
@@ -3590,6 +3673,10 @@ async def auto_sync():
                 + ", ".join(dups))
 
         for did, sid in links.items():
+            if api.auth_blocked():
+                log("⚠️ auto_sync прерван: админка cs2red отдаёт 403 "
+                    "(скорее всего протухли cookie) — обнови CS2RED_* в Render")
+                break
             if str(sid) in dups:
                 continue
             m = guild.get_member(int(did))
