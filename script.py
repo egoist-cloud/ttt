@@ -9,6 +9,7 @@ import random
 import asyncio
 import datetime
 import platform
+import shutil
 import sys
 import threading
 import traceback
@@ -49,8 +50,67 @@ os.environ.setdefault("PYTHONUNBUFFERED", "1")
 
 load_dotenv()
 
-DATA_DIR = Path(os.getenv("DATA_DIR", ".")).resolve()
-DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+def _resolve_data_dir() -> Path:
+    """
+    Папка для JSON-баз.
+
+    Если заданный путь недоступен на запись, бот не падает, а работает рядом
+    со скриптом и пишет предупреждение. Типичный случай: в Render указан
+    DATA_DIR=/data, но постоянный диск к сервису не подключён — тогда /data
+    создать нельзя (PermissionError: [Errno 13]).
+
+    Проверяем реальной записью: mkdir(exist_ok=True) на существующей, но
+    недоступной папке не выдаёт ошибку, а падение случается позже, при записи.
+    """
+    candidates = [Path(os.getenv("DATA_DIR", ".")).resolve(),
+                  Path(__file__).resolve().parent]
+    first = True
+    for candidate in candidates:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            probe = candidate / ".write_test"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink()
+        except Exception as e:
+            print(f"⚠️ Папка данных {candidate} недоступна: {e}", flush=True)
+            first = False
+            continue
+        if not first:
+            print(f"⚠️ Использую папку данных: {candidate}", flush=True)
+        return candidate
+    print("⚠️ Не нашёл доступную папку данных, работаю в текущем каталоге", flush=True)
+    return Path.cwd()
+
+
+def _seed_data_dir_from_script_dir():
+    """
+    Первый запуск с новой папкой данных (например, только что подключили диск
+    /data): копируем туда JSON-базы и rules.txt, лежащие рядом со скриптом.
+
+    Без этого бот стартовал бы с пустыми привязками, хотя файлы есть
+    в репозитории — привязки пришлось бы собирать заново.
+    """
+    script_dir = Path(__file__).resolve().parent
+    if DATA_DIR == script_dir:
+        return
+    copied = []
+    for pattern in ("*.json", "rules.txt"):
+        for src in sorted(script_dir.glob(pattern)):
+            dst = DATA_DIR / src.name
+            if dst.exists():
+                continue
+            try:
+                shutil.copyfile(src, dst)
+                copied.append(src.name)
+            except Exception as e:
+                print(f"⚠️ не скопировал {src.name} в папку данных: {e}", flush=True)
+    if copied:
+        print("📦 В папку данных перенесено из репозитория: " + ", ".join(copied), flush=True)
+
+
+DATA_DIR = _resolve_data_dir()
+_seed_data_dir_from_script_dir()
 
 
 def data_path(name: str) -> Path:
