@@ -196,6 +196,14 @@ ALLOWED_ROLE_ID = _env_int("ALLOWED_ROLE_ID", 0)
 DEPUTY_ROLE_IDS = _env_ids("DEPUTY_ROLE_IDS") or _env_ids("DEPUTY_ROLE_ID")
 # Первый ID оставлен для совместимости (логи, старые проверки).
 DEPUTY_ROLE_ID = DEPUTY_ROLE_IDS[0] if DEPUTY_ROLE_IDS else 0
+
+# Кого оставлять в ветке заявки после закрытия.
+# По умолчанию — только заместители (и сам бот). Список можно дополнить:
+#     THREAD_KEEP_IDS=111111111111111111,222222222222222222
+THREAD_KEEP_IDS = _env_ids("THREAD_KEEP_IDS")
+# Кого убирать из ветки, даже если он ревьюер или администратор:
+#     THREAD_REMOVE_IDS=1113899288192356402
+THREAD_REMOVE_IDS = _env_ids("THREAD_REMOVE_IDS")
 REVIEWER_ROLE_ID_2 = _env_int("REVIEWER_ROLE_ID_2", 0)
 SPAM_VOTE_ROLE_ID = _env_int("SPAM_VOTE_ROLE_ID", 0)
 EXTRA_REVIEWER_ROLE_1 = _env_int("EXTRA_REVIEWER_ROLE_1", 0)
@@ -210,7 +218,10 @@ ACTIVITY_ROLE_ID = _env_int("ACTIVITY_ROLE_ID", 1448368118190837800)
 
 CLAN_NAME = os.getenv("CLAN_NAME", "TALENT")
 CLAN_URL = os.getenv("CLAN_URL", "https://cs2red.ru/clans/id/47")
-VOTES_REQUIRED = max(1, _env_int("VOTES_REQUIRED", 2))
+# Сколько РАЗНЫХ людей должно проголосовать, чтобы заявка закрылась.
+# 1 = хватает одного человека. Заместители (DEPUTY_ROLE_ID) и админы
+# закрывают заявку единолично при любом значении.
+VOTES_REQUIRED = max(1, _env_int("VOTES_REQUIRED", 1))
 
 # Кулдаун /link (реализован вручную, чтобы работала роль NO_COOLDOWN_ROLE_ID).
 LINK_COOLDOWN_SECONDS = max(0, _env_int("LINK_COOLDOWN_SECONDS", 30))
@@ -960,6 +971,26 @@ def collect_reviewer_ids(guild: discord.Guild) -> set:
     return ids
 
 
+def collect_thread_keep_ids(guild: discord.Guild) -> set:
+    """
+    Кого оставлять в ветке заявки после её закрытия.
+
+    Раньше оставались все ревьюеры и администраторы — в ветке копились люди.
+    Теперь по умолчанию остаются только заместители (DEPUTY_ROLE_IDS) и бот;
+    список можно расширить через THREAD_KEEP_IDS и сузить через
+    THREAD_REMOVE_IDS (там ID убираются, даже если они ревьюеры).
+    """
+    ids = set()
+    for rid in DEPUTY_ROLE_IDS:
+        role = guild.get_role(rid) if rid else None
+        if role:
+            ids.update(m.id for m in role.members)
+    ids.update(THREAD_KEEP_IDS)
+    if guild.me:
+        ids.add(guild.me.id)
+    return ids - set(THREAD_REMOVE_IDS)
+
+
 def has_bypass_role(member) -> bool:
     """BYPASS_ROLE_ID: таким участникам запрет на заявки не мешает (раньше флаг был мёртвым)."""
     if not BYPASS_ROLE_ID:
@@ -1417,7 +1448,7 @@ async def close_application_thread(thread, closed_by, reason):
             await thread.edit(archived=True, locked=True, reason=f"Заявка {reason}")
         except Exception:
             pass
-        keep = collect_reviewer_ids(thread.guild)
+        keep = collect_thread_keep_ids(thread.guild)
         try:
             members = await thread.fetch_members()
         except Exception:
@@ -1521,7 +1552,7 @@ async def _vote(interaction, kind):
         c.disabled = True
     embed = interaction.message.embeds[0] if interaction.message.embeds else None
     if embed is not None:
-        embed.set_footer(text=f"Quantum • Статус: {status}")
+        embed.set_footer(text=f"cs2red • Заявки в клан • {status} • {_human_time()}")
     try:
         if embed is not None:
             await interaction.message.edit(embed=embed, view=view)
@@ -1585,12 +1616,15 @@ class ApplicationManagement(discord.ui.View):
         accept = len(st.get("accept_voters") or [])
         deny = len(st.get("deny_voters") or [])
         closed = bool(st.get("closed"))
+        # Счётчик показываем только если голосов реально нужно больше одного.
         for c in self.children:
             if c.custom_id == "accept_btn":
-                c.label = f"Принять {accept}/{VOTES_REQUIRED}"
+                c.label = (f"✅ Принять {accept}/{VOTES_REQUIRED}" if VOTES_REQUIRED > 1
+                           else "✅ Принять")
                 c.disabled = closed
             elif c.custom_id == "deny_btn":
-                c.label = f"Отклонить {deny}/{VOTES_REQUIRED}"
+                c.label = (f"❌ Отклонить {deny}/{VOTES_REQUIRED}" if VOTES_REQUIRED > 1
+                           else "❌ Отклонить")
                 c.disabled = closed
             elif c.custom_id == "voted_list_btn":
                 c.label = f"👥 {len(st.get('voters') or [])}"
@@ -1612,12 +1646,12 @@ class ApplicationManagement(discord.ui.View):
         except Exception as e:
             log(f"⚠️ take: {e}")
 
-    @discord.ui.button(label="Принять 0/2", style=discord.ButtonStyle.success,
+    @discord.ui.button(label="✅ Принять", style=discord.ButtonStyle.success,
                        custom_id="accept_btn", row=0)
     async def accept(self, i, b):
         await _vote(i, "accept")
 
-    @discord.ui.button(label="Отклонить 0/2", style=discord.ButtonStyle.danger,
+    @discord.ui.button(label="❌ Отклонить", style=discord.ButtonStyle.danger,
                        custom_id="deny_btn", row=0)
     async def deny(self, i, b):
         await _vote(i, "deny")
