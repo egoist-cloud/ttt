@@ -1,5 +1,5 @@
 """
-Quantum - бот клана (v27: fix Brotli, все кнопки в панели, /sync вручную)
+Quantum - бот клана (v28: ИИ-контекст, дашборд, быстрые запросы)
 """
 import os
 import re
@@ -154,6 +154,9 @@ THREADS_CHANNEL_ID = _env_int("THREADS_CHANNEL_ID", 1236678127778795660)
 DB_CHANNEL_ID = _env_int("DB_CHANNEL_ID", 1554883485834149888)
 ERROR_LOG_CHANNEL_ID = _env_int("ERROR_LOG_CHANNEL_ID", 1511463623703265361)
 
+# Дашборд идёт в канал DB_CHANNEL_ID.
+DASHBOARD_CHANNEL_ID = DB_CHANNEL_ID
+
 AI_LOG_CHANNEL_ID = _env_int("AI_LOG_CHANNEL_ID",
                              _env_int("AI_REPORT_CHANNEL_ID", 1556427610160889907))
 
@@ -230,17 +233,18 @@ CMD_API_TIMEOUT = 30.0
 CS2RED_AUTH_BLOCK_SECONDS = max(30, _env_int("CS2RED_AUTH_BLOCK_SECONDS", 600))
 
 # ============================================================
-# ЗАДЕРЖКИ
+# ЗАДЕРЖКИ (ускорено)
 # ============================================================
 SYNC_INTERVAL_MINUTES = max(1, _env_int("SYNC_INTERVAL_MINUTES", 360))
 ACTIVITY_TRACK_SECONDS = max(60, _env_int("ACTIVITY_TRACK_SECONDS", 900))
 ACTIVITY_TRACK_DELTA = 300
 CLANS_CACHE_TTL = 300
 
-REQUEST_DELAY = 0.3
-SYNC_BTN_DELAY = max(1, _env_int("SYNC_BTN_DELAY", 3))
-LINK_ALL_DELAY = max(1, _env_int("LINK_ALL_DELAY", 20))
-SYNC_CMD_DELAY = max(1, _env_int("SYNC_CMD_DELAY", 3))
+REQUEST_DELAY = 0.1
+SYNC_BTN_DELAY = max(1, _env_int("SYNC_BTN_DELAY", 1))
+LINK_ALL_DELAY = max(1, _env_int("LINK_ALL_DELAY", 1))
+SYNC_CMD_DELAY = max(1, _env_int("SYNC_CMD_DELAY", 1))
+DASHBOARD_INTERVAL_MINUTES = max(1, _env_int("DASHBOARD_INTERVAL_MINUTES", 10))
 
 
 def _parse_cookies(raw: str) -> dict:
@@ -290,10 +294,8 @@ for _cookie_name, _cookie_value in _cookie_env.items():
     if _cookie_value and not CS2RED_COOKIES.get(_cookie_name):
         CS2RED_COOKIES[_cookie_name] = _cookie_value
 
-# ВАЖНО: убран "br" из Accept-Encoding.
-# cs2red возвращает ответы, сжатые Brotli, а aiohttp не умеет распаковывать
-# Brotli без отдельной библиотеки — получалась 400: "Can not decode content-encoding: brotli (br)".
-# Без "br" сервер отдаёт gzip/deflate, которые aiohttp понимает из коробки.
+# ВАЖНО: без "br" в Accept-Encoding. cs2red отдаёт Brotli, а aiohttp не умеет
+# его распаковывать без доп. библиотеки. Без "br" сервер отдаёт gzip/deflate.
 CS2RED_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                   "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -511,6 +513,11 @@ else:
 _error_ring = deque(maxlen=60)
 _ai_last_error_report = 0.0
 _ai_ask_last: dict = {}
+
+# Контекст диалога ИИ: channel_id -> deque последних сообщений
+_ai_context: dict = {}
+_AI_CONTEXT_MAX = 5
+
 _data_dirty: set = set()
 
 
@@ -641,7 +648,7 @@ def _bot_stats_line() -> str:
     uptime = f"{days} д. {hours} ч." if days else f"{hours} ч. {rem // 60} мин."
     running = 0
     for task_obj in (activity_tracker, rules_refresher,
-                     ai_error_watcher, data_push_loop):
+                     ai_error_watcher, data_push_loop, dashboard_loop):
         try:
             running += 1 if task_obj.is_running() else 0
         except Exception:
@@ -652,7 +659,7 @@ def _bot_stats_line() -> str:
         links_count = 0
     ws = bot.latency * 1000 if bot.is_ready() else 0
     return (f"Quantum • аптайм {uptime} • WS {ws:.0f} мс • "
-            f"привязок {links_count} • задач {running}/4 • ошибок в буфере {len(_error_ring)}")
+            f"привязок {links_count} • задач {running}/5 • ошибок в буфере {len(_error_ring)}")
 
 
 async def log_error(bot: commands.Bot, context: str, exc):
@@ -764,7 +771,7 @@ async def run_with_timeout(coro, timeout: float, fallback_msg: str,
 class API:
     def __init__(self):
         self.session: aiohttp.ClientSession | None = None
-        self.sem = asyncio.Semaphore(2)
+        self.sem = asyncio.Semaphore(4)   # больше параллельных запросов
         self._clans_cache = {"ts": 0.0, "data": None}
         self.last_status: int | None = None
         self._auth_block_until = 0.0
@@ -773,11 +780,9 @@ class API:
 
     async def start(self):
         connector = aiohttp.TCPConnector(
-            family=2, ttl_dns_cache=300, limit=8,
+            family=2, ttl_dns_cache=300, limit=16,
             force_close=False, enable_cleanup_closed=True,
         )
-        # ВАЖНО: auto_decompress=True (по умолчанию). С gzip/deflate aiohttp
-        # справляется сам, Brotli не нужен — мы его отключили в заголовках.
         self.session = aiohttp.ClientSession(
             headers=CS2RED_HEADERS,
             cookies=CS2RED_COOKIES or None,
@@ -1858,7 +1863,7 @@ class ClanView(discord.ui.View):
 # ============================================================
 # БОТ
 # ============================================================
-PUBLIC_COMMANDS = {"link", "link_confirm", "unlink", "ping", "lookup", "rules", "ask"}
+PUBLIC_COMMANDS = {"link", "link_confirm", "unlink", "ping", "lookup", "rules", "ask", "ai_clear"}
 
 
 async def _global_interaction_check(i: discord.Interaction) -> bool:
@@ -1910,9 +1915,10 @@ class MyBot(commands.Bot):
             self.add_view(ControlPanel())
             log("✅ ControlPanel добавлен (панель управления)")
 
-            # auto_sync ОТКЛЮЧЁН — запускается вручную через /sync.
+            # auto_sync отключён — запускается вручную через /sync.
             # auto_sync.start()
             activity_tracker.start()
+            dashboard_loop.start()
 
             if rules_base is not None:
                 rules_refresher.start()
@@ -1942,8 +1948,6 @@ bot = MyBot()
 # ПАНЕЛЬ УПРАВЛЕНИЯ
 # ============================================================
 class ControlPanel(discord.ui.View):
-    """Постоянная панель управления ботом с чёрной полосой."""
-
     def __init__(self):
         super().__init__(timeout=None)
 
@@ -1993,154 +1997,167 @@ class ControlPanel(discord.ui.View):
             await i.response.send_message("❌ Нет доступа.", ephemeral=True)
             return
 
+        log("🔗 Кнопка «Привязать всех» нажата")
+
         await i.response.defer(ephemeral=True)
-        await safe_send(i.followup, "⏳ Массовая привязка запущена. "
-                                    f"Задержка между запросами: {LINK_ALL_DELAY} сек. "
-                                    f"Отчёт придёт в канал ручного разбора.", ephemeral=True)
-
-        MANUAL_CHANNEL = UNLINKED_CHANNEL_ID
-        links = links_store.read()
-        guild = i.guild
-
-        added = []
-        already = []
-        not_found = []
-        multiple = []
-        errors = []
-
-        total = len([m for m in guild.members if not m.bot and str(m.id) not in links])
-        done = 0
-
-        for member in guild.members:
-            if member.bot:
-                continue
-            if str(member.id) in links:
-                already.append(member.display_name)
-                continue
-
-            username = (member.name or "").strip()
-            if not username:
-                continue
-
-            try:
-                data = await api._get_json(
-                    "https://cs2red.ru/api/admin/users",
-                    params={"begin": 0, "count": 10, "search": username}
-                )
-            except Exception as e:
-                errors.append(f"{member.display_name} (`{username}`): {e}")
-                await asyncio.sleep(LINK_ALL_DELAY)
-                continue
-
-            if not data or not data.get("success"):
-                not_found.append(f"{member.display_name} (`{username}`)")
-                await asyncio.sleep(LINK_ALL_DELAY)
-                continue
-
-            users = data.get("users") or []
-            exact = [u for u in users
-                     if str(u.get("nick", "")).lower() == username.lower()]
-            if not exact:
-                exact = users
-
-            if not exact:
-                not_found.append(f"{member.display_name} (`{username}`)")
-                await asyncio.sleep(LINK_ALL_DELAY)
-                continue
-
-            if len(exact) > 1:
-                accs = ", ".join(
-                    f"`{u.get('nick', '?')}` (`{u.get('steamid64', '?')}`)"
-                    for u in exact[:5]
-                )
-                multiple.append(
-                    f"{member.display_name} (`{username}`): {len(exact)} акк. → {accs}"
-                )
-                await asyncio.sleep(LINK_ALL_DELAY)
-                continue
-
-            steamid = str(exact[0].get("steamid64") or "")
-            if not steamid:
-                not_found.append(f"{member.display_name} (`{username}`) — нет SteamID")
-                await asyncio.sleep(LINK_ALL_DELAY)
-                continue
-
-            try:
-                await links_store.update(lambda d: d.update({str(member.id): steamid}))
-            except Exception as e:
-                errors.append(f"{member.display_name}: не сохранил — {e}")
-                await asyncio.sleep(LINK_ALL_DELAY)
-                continue
-
-            added.append(
-                f"✅ {member.display_name} (`{username}`) → `{steamid}` "
-                f"({exact[0].get('nick', '?')})"
-            )
-
-            try:
-                await sync_role_by_id(guild, member, steamid)
-                await sync_clan_role_by_id(guild, member, steamid)
-            except Exception as e:
-                log(f"⚠️ link_all: роли {member.display_name}: {e}")
-
-            done += 1
-
-            if done % 25 == 0:
-                try:
-                    ch = bot.get_channel(MANUAL_CHANNEL)
-                    if ch:
-                        await safe_send(ch, f"⏳ Прогресс: обработано {done}/{total}…")
-                except Exception:
-                    pass
-
-            await asyncio.sleep(LINK_ALL_DELAY)
-
-        if multiple or not_found or errors or added:
-            lines = [f"📋 **Массовая привязка завершена** — {utc_stamp()}\n"]
-            lines.append(f"✅ Привязано: **{len(added)}**")
-            lines.append(f"ℹ️ Уже привязано: **{len(already)}**")
-            lines.append(f"⚠️ Несколько аккаунтов: **{len(multiple)}**")
-            lines.append(f"❓ Не найдено: **{len(not_found)}**")
-            lines.append(f"🔴 Ошибок: **{len(errors)}**\n")
-
-            if added:
-                lines.append("**Последние привязанные:**\n" + "\n".join(added[-10:]) + "\n")
-            if multiple:
-                lines.append(f"⚠️ **Несколько аккаунтов** ({len(multiple)}):\n"
-                             + "\n".join(multiple[:20]) + "\n")
-            if not_found:
-                lines.append(f"❓ **Не найдено на cs2red** ({len(not_found)}):\n"
-                             + "\n".join(not_found[:30]) + "\n")
-            if errors:
-                lines.append(f"🔴 **Ошибки** ({len(errors)}):\n"
-                             + "\n".join(errors[:15]))
-
-            text_manual = "\n".join(lines)
-
-            try:
-                ch = bot.get_channel(MANUAL_CHANNEL)
-                if ch is None:
-                    log(f"⚠️ link_all: канал {MANUAL_CHANNEL} не найден")
-                else:
-                    for k in range(0, len(text_manual), 1900):
-                        await safe_send(ch, text_manual[k:k + 1900])
-                        await asyncio.sleep(1)
-            except Exception as e:
-                log(f"⚠️ link_all: отчёт: {e}")
-
         try:
-            await i.followup.send(
-                f"📊 Массовая привязка завершена: "
-                f"+{len(added)}, уже {len(already)}, мульти {len(multiple)}, "
-                f"не найдено {len(not_found)}, ошибок {len(errors)}. "
-                f"Подробный отчёт — в <#{MANUAL_CHANNEL}>",
+            await safe_send(i.followup,
+                f"⏳ Массовая привязка запущена. Задержка: {LINK_ALL_DELAY} сек. "
+                f"Отчёт придёт в канал ручного разбора.",
                 ephemeral=True)
         except Exception as e:
-            log(f"⚠️ link_all: финальный ephemeral: {e}")
+            log(f"⚠️ link_all: ephemeral: {e}")
 
-        await ai_log(f"🔗 Массовая привязка: +{len(added)}, уже {len(already)}, "
-                     f"мульти {len(multiple)}, не найдено {len(not_found)}, "
-                     f"ошибок {len(errors)}")
+        try:
+            MANUAL_CHANNEL = UNLINKED_CHANNEL_ID
+            links = links_store.read()
+            guild = i.guild
+
+            added = []
+            already = []
+            not_found = []
+            multiple = []
+            errors = []
+
+            total = len([m for m in guild.members if not m.bot and str(m.id) not in links])
+            done = 0
+
+            for member in guild.members:
+                if member.bot:
+                    continue
+                if str(member.id) in links:
+                    already.append(member.display_name)
+                    continue
+
+                username = (member.name or "").strip()
+                if not username:
+                    continue
+
+                try:
+                    data = await api._get_json(
+                        "https://cs2red.ru/api/admin/users",
+                        params={"begin": 0, "count": 10, "search": username}
+                    )
+                except Exception as e:
+                    errors.append(f"{member.display_name} (`{username}`): {e}")
+                    await asyncio.sleep(LINK_ALL_DELAY)
+                    continue
+
+                if not data or not data.get("success"):
+                    not_found.append(f"{member.display_name} (`{username}`)")
+                    await asyncio.sleep(LINK_ALL_DELAY)
+                    continue
+
+                users = data.get("users") or []
+                exact = [u for u in users
+                         if str(u.get("nick", "")).lower() == username.lower()]
+                if not exact:
+                    exact = users
+
+                if not exact:
+                    not_found.append(f"{member.display_name} (`{username}`)")
+                    await asyncio.sleep(LINK_ALL_DELAY)
+                    continue
+
+                if len(exact) > 1:
+                    accs = ", ".join(
+                        f"`{u.get('nick', '?')}` (`{u.get('steamid64', '?')}`)"
+                        for u in exact[:5]
+                    )
+                    multiple.append(
+                        f"{member.display_name} (`{username}`): {len(exact)} акк. → {accs}"
+                    )
+                    await asyncio.sleep(LINK_ALL_DELAY)
+                    continue
+
+                steamid = str(exact[0].get("steamid64") or "")
+                if not steamid:
+                    not_found.append(f"{member.display_name} (`{username}`) — нет SteamID")
+                    await asyncio.sleep(LINK_ALL_DELAY)
+                    continue
+
+                try:
+                    await links_store.update(lambda d: d.update({str(member.id): steamid}))
+                except Exception as e:
+                    errors.append(f"{member.display_name}: не сохранил — {e}")
+                    await asyncio.sleep(LINK_ALL_DELAY)
+                    continue
+
+                added.append(
+                    f"✅ {member.display_name} (`{username}`) → `{steamid}` "
+                    f"({exact[0].get('nick', '?')})"
+                )
+
+                try:
+                    await sync_role_by_id(guild, member, steamid)
+                    await sync_clan_role_by_id(guild, member, steamid)
+                except Exception as e:
+                    log(f"⚠️ link_all: роли {member.display_name}: {e}")
+
+                done += 1
+
+                if done % 25 == 0:
+                    try:
+                        ch = bot.get_channel(MANUAL_CHANNEL)
+                        if ch:
+                            await safe_send(ch, f"⏳ Прогресс: обработано {done}/{total}…")
+                    except Exception:
+                        pass
+
+                await asyncio.sleep(LINK_ALL_DELAY)
+
+            if multiple or not_found or errors or added:
+                lines = [f"📋 **Массовая привязка завершена** — {utc_stamp()}\n"]
+                lines.append(f"✅ Привязано: **{len(added)}**")
+                lines.append(f"ℹ️ Уже привязано: **{len(already)}**")
+                lines.append(f"⚠️ Несколько аккаунтов: **{len(multiple)}**")
+                lines.append(f"❓ Не найдено: **{len(not_found)}**")
+                lines.append(f"🔴 Ошибок: **{len(errors)}**\n")
+
+                if added:
+                    lines.append("**Последние привязанные:**\n" + "\n".join(added[-10:]) + "\n")
+                if multiple:
+                    lines.append(f"⚠️ **Несколько аккаунтов** ({len(multiple)}):\n"
+                                 + "\n".join(multiple[:20]) + "\n")
+                if not_found:
+                    lines.append(f"❓ **Не найдено на cs2red** ({len(not_found)}):\n"
+                                 + "\n".join(not_found[:30]) + "\n")
+                if errors:
+                    lines.append(f"🔴 **Ошибки** ({len(errors)}):\n"
+                                 + "\n".join(errors[:15]))
+
+                text_manual = "\n".join(lines)
+
+                try:
+                    ch = bot.get_channel(MANUAL_CHANNEL)
+                    if ch is None:
+                        log(f"⚠️ link_all: канал {MANUAL_CHANNEL} не найден")
+                    else:
+                        for k in range(0, len(text_manual), 1900):
+                            await safe_send(ch, text_manual[k:k + 1900])
+                            await asyncio.sleep(1)
+                except Exception as e:
+                    log(f"⚠️ link_all: отчёт: {e}")
+
+            try:
+                await i.followup.send(
+                    f"📊 Массовая привязка завершена: "
+                    f"+{len(added)}, уже {len(already)}, мульти {len(multiple)}, "
+                    f"не найдено {len(not_found)}, ошибок {len(errors)}. "
+                    f"Подробный отчёт — в <#{MANUAL_CHANNEL}>",
+                    ephemeral=True)
+            except Exception as e:
+                log(f"⚠️ link_all: финальный ephemeral: {e}")
+
+            await ai_log(f"🔗 Массовая привязка: +{len(added)}, уже {len(already)}, "
+                         f"мульти {len(multiple)}, не найдено {len(not_found)}, "
+                         f"ошибок {len(errors)}")
+        except Exception as e:
+            await log_error(i.client, "link_all_btn", e)
+            try:
+                await i.followup.send(f"❌ Ошибка: {str(e)[:200]}", ephemeral=True)
+            except Exception:
+                pass
 
     @discord.ui.button(label="🔄 Синхронизация", style=discord.ButtonStyle.primary,
                        custom_id="panel_sync", row=0)
@@ -2148,6 +2165,7 @@ class ControlPanel(discord.ui.View):
         if not is_moderator(i.user.id, i.guild):
             await i.response.send_message("❌ Нет доступа.", ephemeral=True)
             return
+        log("🔄 Кнопка «Синхронизация» нажата")
         await i.response.defer(ephemeral=True)
         try:
             links = links_store.read()
@@ -3084,6 +3102,7 @@ async def health(i: discord.Interaction):
 
     for name, task_obj, interval in [
         ("activity_tracker", activity_tracker, f"{ACTIVITY_TRACK_SECONDS // 60} мин"),
+        ("dashboard_loop", dashboard_loop, f"{DASHBOARD_INTERVAL_MINUTES} мин"),
     ]:
         if task_obj.is_running():
             nxt = task_obj.next_iteration
@@ -3383,11 +3402,27 @@ async def activity_all(i):
 
 
 # ============================================================
-# ИИ-КОМАНДЫ
+# ИИ-КОМАНДЫ (с контекстом диалога)
 # ============================================================
 def _ai_cooldown_left(user_id: int) -> float:
     left = AI_ASK_COOLDOWN_SECONDS - (time.time() - _ai_ask_last.get(user_id, 0.0))
     return left if left > 0 else 0.0
+
+
+def _ai_context_add(channel_id: int, role: str, content: str):
+    if channel_id not in _ai_context:
+        _ai_context[channel_id] = deque(maxlen=_AI_CONTEXT_MAX * 2)
+    _ai_context[channel_id].append({"role": role, "content": content[:500]})
+
+
+def _ai_context_get(channel_id: int) -> list:
+    if channel_id not in _ai_context:
+        return []
+    return list(_ai_context[channel_id])
+
+
+def _ai_context_clear(channel_id: int):
+    _ai_context.pop(channel_id, None)
 
 
 def _no_rules_hint() -> str:
@@ -3431,16 +3466,35 @@ async def answer_rules(question: str) -> tuple:
     return (f"⚠️ ИИ недоступен: {meta['error'][:200]}", f"ИИ недоступен: {meta['error']}")
 
 
-async def answer_general(question: str) -> tuple:
+async def answer_general(question: str, channel_id: int = 0) -> tuple:
+    """Свободный вопрос к ИИ с контекстом диалога."""
     if ai_client is None or not ai_client.enabled:
         return ("⚠️ ИИ не настроен: администратору нужно добавить `GEMINI_API_KEY`.",
                 "ИИ выключен")
+
     context = rules_base.context_for(question, limit=4) if (rules_base and rules_base.ready) else ""
-    prompt = (f"КОНТЕКСТ (правила проекта cs2red.ru, может быть не по теме):\n{context}\n\n"
+    history = _ai_context_get(channel_id) if channel_id else []
+
+    history_text = ""
+    if history:
+        history_text = "\n\nПРЕДЫДУЩИЙ ДИАЛОГ:\n"
+        for msg in history:
+            role = "Игрок" if msg["role"] == "user" else "Ты"
+            history_text += f"{role}: {msg['content']}\n"
+
+    prompt = (f"КОНТЕКСТ (правила проекта cs2red.ru, может быть не по теме):\n{context}\n"
+              f"{history_text}\n"
               f"ВОПРОС: {question}\n\n"
               f"Ответь кратко. Если вопрос про правила — ссылайся на номера пунктов, "
               f"если нет — просто помоги по существу.")
+
     text, meta = await ai_client.ask(api.session, prompt, system=ai_rules.ASK_SYSTEM)
+
+    if channel_id:
+        _ai_context_add(channel_id, "user", question)
+        if text:
+            _ai_context_add(channel_id, "assistant", text)
+
     if text:
         return (f"🤖 {text[:1800]}", f"ответ ИИ за {meta['latency']:.1f} с")
     return (f"⚠️ ИИ недоступен: {meta['error'][:200]}", f"ошибка ИИ: {meta['error']}")
@@ -3457,6 +3511,7 @@ def ai_status_text() -> str:
     lines.append(f"• хранилище данных: "
                  f"{github_sync.status_line() if github_sync else 'модуль github_sync не загружен'}")
     lines.append(f"• DATA_DIR: `{DATA_DIR}`")
+    lines.append(f"• контекст диалогов: каналов `{len(_ai_context)}`")
     if rules_base is not None and rules_base.size == 0:
         lines.append("• ⚠️ пунктов правил не найдено — положи `rules.txt` "
                      "в репозиторий данных и выполни `!ai_scan`")
@@ -3490,7 +3545,7 @@ async def rules_cmd(i, question: str):
         await close_interaction(i, f"❌ Ошибка: {str(e)[:200]}")
 
 
-@bot.tree.command(name="ask", description="Задать вопрос ИИ-помощнику")
+@bot.tree.command(name="ask", description="Задать вопрос ИИ-помощнику (с контекстом диалога)")
 @app_commands.describe(question="Любой вопрос по игре, клану или боту")
 async def ask_cmd(i, question: str):
     left = _ai_cooldown_left(i.user.id)
@@ -3500,7 +3555,7 @@ async def ask_cmd(i, question: str):
     await i.response.defer(ephemeral=False)
     _ai_ask_last[i.user.id] = time.time()
     try:
-        answer, logline = await answer_general(question)
+        answer, logline = await answer_general(question, channel_id=i.channel_id)
         await safe_send(i.followup, answer, ephemeral=False)
         await ai_log(f"💬 /ask «{question[:120]}» — {i.user} → {logline}")
     except Exception as e:
@@ -3512,6 +3567,13 @@ async def ask_cmd(i, question: str):
 async def ai_status_cmd(i):
     await i.response.defer(ephemeral=False)
     await safe_send(i.followup, ai_status_text(), ephemeral=False)
+
+
+@bot.tree.command(name="ai_clear", description="Очистить контекст диалога с ИИ в этом канале")
+async def ai_clear_cmd(i: discord.Interaction):
+    _ai_context_clear(i.channel_id)
+    await i.response.send_message("✅ Контекст диалога очищен. ИИ больше не помнит "
+                                  "предыдущие сообщения в этом канале.", ephemeral=True)
 
 
 # ---------- префиксные версии ----------
@@ -3550,7 +3612,7 @@ async def ask_prefix(ctx, *, question: str = ""):
         return
     _ai_ask_last[ctx.author.id] = time.time()
     try:
-        answer, logline = await answer_general(question)
+        answer, logline = await answer_general(question, channel_id=ctx.channel.id)
         await safe_send(ctx.channel, answer)
         await ai_log(f"💬 !ask «{question[:120]}» — {ctx.author} → {logline}")
     except Exception as e:
@@ -3715,6 +3777,117 @@ async def before_activity_tracker():
 
 
 # ============================================================
+# ДАШБОРД В КАНАЛЕ DB_CHANNEL_ID
+# ============================================================
+_dashboard_message_id: int = 0
+
+
+async def build_dashboard_embed() -> discord.Embed:
+    ws = bot.latency * 1000 if bot.is_ready() else 0
+    up = int(time.time() - BOT_START_TIME)
+    days, rem = divmod(up, 86400)
+    hours, rem = divmod(rem, 3600)
+    mins = rem // 60
+    uptime = (f"{days}д {hours}ч {mins}м" if days
+              else (f"{hours}ч {mins}м" if hours else f"{mins}м"))
+
+    links = links_store.read()
+    total_links = len(links)
+
+    db = players_store.read()
+    active_players = sorted(
+        ((sid, p) for sid, p in db.items() if p.get("activity")),
+        key=lambda x: sum(float(v) for v in (x[1].get("activity") or {}).values()
+                          if isinstance(v, (int, float))),
+        reverse=True
+    )[:10]
+
+    top_lines = []
+    for sid, p in active_players:
+        nick = p.get("cs2red_nick") or p.get("discord_name") or sid
+        hours = sum(float(v) for v in (p.get("activity") or {}).values()
+                    if isinstance(v, (int, float)))
+        bar = "█" * min(10, int(hours / 2))
+        top_lines.append(f"`{str(nick)[:20]:20}` {bar} {hours:.1f} ч.")
+
+    try:
+        online = await api.server_times()
+        online_count = len(online)
+    except Exception:
+        online_count = 0
+
+    e = discord.Embed(
+        title="📈 Дашборд Quantum — Активность",
+        description=f"**Обновлено:** {utc_stamp()}",
+        color=AI_EMBED_COLOR,
+        timestamp=now_utc(),
+    )
+    e.add_field(name="⏱ Аптайм", value=f"`{uptime}`", inline=True)
+    e.add_field(name="📡 WS", value=f"`{ws:.0f} мс`", inline=True)
+    e.add_field(name="🔗 Привязок", value=f"`{total_links}`", inline=True)
+    e.add_field(name="🌐 Онлайн сервера", value=f"`{online_count}` игроков", inline=True)
+    e.add_field(name="📁 Заявок", value=f"`{len(votes_store.read())}`", inline=True)
+    e.add_field(name="⚠️ Ошибок", value=f"`{len(_error_ring)}`", inline=True)
+
+    if top_lines:
+        e.add_field(
+            name="🏆 Топ-10 активных за неделю",
+            value="\n".join(top_lines) if top_lines else "—",
+            inline=False,
+        )
+
+    e.add_field(
+        name="🤖 ИИ",
+        value=(ai_client.status_line()[:200] if ai_client else "выключен"),
+        inline=False,
+    )
+    e.add_field(
+        name="📚 Правила",
+        value=(rules_base.status_line()[:200] if rules_base else "нет модуля"),
+        inline=False,
+    )
+
+    if bot.user:
+        e.set_thumbnail(url=bot.user.display_avatar.url)
+    e.set_footer(text=f"Quantum • Автообновление раз в {DASHBOARD_INTERVAL_MINUTES} мин")
+    return e
+
+
+@tasks.loop(minutes=DASHBOARD_INTERVAL_MINUTES)
+async def dashboard_loop():
+    global _dashboard_message_id
+    try:
+        channel = bot.get_channel(DASHBOARD_CHANNEL_ID)
+        if channel is None:
+            log(f"⚠️ dashboard: канал {DASHBOARD_CHANNEL_ID} не найден")
+            return
+
+        embed = await build_dashboard_embed()
+
+        if _dashboard_message_id:
+            try:
+                msg = await channel.fetch_message(_dashboard_message_id)
+                await msg.edit(embed=embed)
+                return
+            except discord.NotFound:
+                _dashboard_message_id = 0
+            except Exception as e:
+                log(f"⚠️ dashboard: не отредактировал: {e}")
+
+        msg = await safe_send(channel, embed=embed)
+        if msg:
+            _dashboard_message_id = msg.id
+    except Exception as e:
+        await log_error(bot, "dashboard_loop", e)
+
+
+@dashboard_loop.before_loop
+async def before_dashboard_loop():
+    await bot.wait_until_ready()
+    await asyncio.sleep(15)
+
+
+# ============================================================
 # ИИ: ОБНОВЛЕНИЕ ПРАВИЛ И РАЗБОР ОШИБОК
 # ============================================================
 class _NoSession:
@@ -3756,6 +3929,7 @@ def _bot_diagnostics() -> str:
     lines = [f"аптайм {int(time.time() - BOT_START_TIME)} c, "
              f"WS {(bot.latency * 1000 if bot.is_ready() else 0):.0f} мс"]
     for name, task_obj in (("activity_tracker", activity_tracker),
+                           ("dashboard_loop", dashboard_loop),
                            ("rules_refresher", rules_refresher)):
         try:
             lines.append(f"задача {name}: {'работает' if task_obj.is_running() else 'ОСТАНОВЛЕНА'}")
