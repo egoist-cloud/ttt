@@ -1,5 +1,5 @@
 """
-Quantum - бот клана (v18: исправлен Cloudflare 429, все safe_send)
+Quantum - бот клана (v19: Brave UA, логирование 403, фиксы)
 """
 import os
 import re
@@ -286,6 +286,7 @@ CMD_API_TIMEOUT = 30.0
 # не дёргаем её повторно и не заливаем лог одинаковыми строками.
 CS2RED_AUTH_BLOCK_SECONDS = max(30, _env_int("CS2RED_AUTH_BLOCK_SECONDS", 600))
 
+
 def _parse_cookies(raw: str) -> dict:
     """
     Разбирает куки в двух форматах:
@@ -347,11 +348,15 @@ for _cookie_name, _cookie_value in _cookie_env.items():
     if _cookie_value and not CS2RED_COOKIES.get(_cookie_name):
         CS2RED_COOKIES[_cookie_name] = _cookie_value
 
+# User-Agent приведён к Brave 154: в куке bh у cs2red закодирован именно он.
+# Если поставить Chrome/124, сайт может отдать 403 из-за несовпадения UA и cookie.
 CS2RED_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                  "AppleWebKit/537.36 (KHTML, like Gecko) "
+                  "Chrome/154.0.0.0 Safari/537.36 Brave/154.0.0.0",
     "Accept": "*/*",
-    "Accept-Language": "ru-RU,ru;q=0.6",
+    "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept-Encoding": "gzip, deflate, br",
     "Referer": "https://cs2red.ru/admin",
     "Origin": "https://cs2red.ru",
     "X-Requested-With": "XMLHttpRequest",
@@ -359,10 +364,20 @@ CS2RED_HEADERS = {
     "Sec-Fetch-Mode": "cors",
     "Sec-Fetch-Site": "same-origin",
     "Sec-GPC": "1",
+    "Connection": "keep-alive",
 }
 
-DEFAULT_ROLE_MAP = {1: None, 2: "VIP", 3: "Premium", 4: "Moderator",
-                    5: "Администратор", 6: "Амбассадор", 9: "Plus"}
+DEFAULT_ROLE_MAP = {
+    1: None,
+    2: "VIP",
+    3: "Premium",
+    4: "Moderator",
+    5: "Администратор",
+    6: "Амбассадор",
+    7: "Спонсор",
+    9: "Plus",
+    13: "Гл.Модератор",
+}
 ROLE_DISPLAY_MAP = {1: "Мл. Модер", 3: "Модератор", 5: "Админ",
                     6: "С. Админ", 7: "Спонсор", 13: "Гл.Модератор"}
 
@@ -725,7 +740,8 @@ def _bot_stats_line() -> str:
         links_count = len(links_store.read())
     except Exception:
         links_count = 0
-    return (f"Quantum • аптайм {uptime} • WS {bot.latency * 1000:.0f} мс • "
+    ws = bot.latency * 1000 if bot.is_ready() else 0
+    return (f"Quantum • аптайм {uptime} • WS {ws:.0f} мс • "
             f"привязок {links_count} • задач {running}/5 • ошибок в буфере {len(_error_ring)}")
 
 
@@ -777,12 +793,18 @@ async def safe_send(target, *args, retries: int = 5, **kwargs):
     Отправка с retry. Уважает:
     - Discord 429 (rate-limit) — ждёт retry_after
     - Cloudflare 429 (HTML-заглушка) — ждёт 90 секунд
+    - Forbidden (403) — не повторяет, сразу выходит
     """
     await _rate_limit_send()
     last_exc = None
     for attempt in range(retries):
         try:
             return await target.send(*args, **kwargs)
+        except discord.Forbidden as e:
+            # Нет прав на отправку в этот канал — retry не поможет.
+            log(f"❌ safe_send: нет прав на отправку в "
+                f"{getattr(target, 'id', '?')}: {e}")
+            return None
         except discord.HTTPException as e:
             last_exc = e
             if e.status == 429:
@@ -879,24 +901,34 @@ class API:
         """Админка отдавала 403 — ждём, пока обновят cookie, и не тратим запросы."""
         return time.time() < self._auth_block_until
 
-    def _note_403(self, url: str):
+    def _note_403(self, url: str, body: str = ""):
         """
-        403 почти всегда означает протухшие cookie админки.
+        403 почти всегда означает протухшие cookie админки или блокировку Cloudflare.
 
-        Раньше каждая такая ошибка писалась в лог отдельной строкой, и при
-        обходе 130 привязок лог заливался сотнями одинаковых строк. Теперь
-        пишем не чаще раза в минуту и ставим паузу на админские запросы.
+        Логируем тело ответа — по нему видно, Cloudflare это (HTML с "Just a moment...",
+        "cf-ray") или реальный отказ API (JSON с ошибкой).
         """
         now = time.time()
         self._403_count += 1
         if "/admin/" in url:
             self._auth_block_until = now + CS2RED_AUTH_BLOCK_SECONDS
+
+        # Логируем тело 403 — оно покажет причину
+        if body:
+            snippet = body[:300].replace("\n", " ").replace("\r", "")
+            log(f"🔴 403 body от {url}: {snippet}")
+
         if now - self._last_403_log > 60:
             self._last_403_log = now
+            low = body.lower()
+            if "cf-ray" in low or "cloudflare" in low or "just a moment" in low:
+                hint = "Cloudflare (IP Render заблокирован)"
+            elif body.startswith("{") or body.startswith("["):
+                hint = "API вернул JSON-ошибку (проверь cookie/права)"
+            else:
+                hint = "неизвестно (смотри тело выше)"
             log(f"🔴 403 на {url} (всего {self._403_count} раз за сессию). "
-                f"Скорее всего протухли cookie админки cs2red — обнови "
-                f"CS2RED_TOKEN, CS2RED_BH, CS2RED_YASC, CS2RED_BROWSER_ID "
-                f"и CS2RED_YANDEXUID в Render")
+                f"Похоже на: {hint}")
 
     async def _get_json(self, url, params=None, force: bool = False):
         if not self.session:
@@ -909,7 +941,8 @@ class API:
                     async with self.session.get(url, params=params) as r:
                         self.last_status = r.status
                         if r.status == 403:
-                            self._note_403(url)
+                            body = await r.text()
+                            self._note_403(url, body)
                             return None
                         if r.status == 429:
                             await asyncio.sleep(2)
@@ -2802,7 +2835,7 @@ async def lookup(i, member: discord.Member):
 # ============================================================
 def build_ping_embed() -> discord.Embed:
     """Общий эмбед для /ping и !ping — включая состояние ИИ и ошибок."""
-    ws = bot.latency * 1000
+    ws = bot.latency * 1000 if bot.is_ready() else 0
     up = int(time.time() - BOT_START_TIME)
     d, r = divmod(up, 86400)
     h, r = divmod(r, 3600)
@@ -2863,7 +2896,7 @@ async def health(i: discord.Interaction):
         else:
             fail_count += 1
 
-    ws_ms = bot.latency * 1000
+    ws_ms = bot.latency * 1000 if bot.is_ready() else 0
     add("🌐", "Discord WebSocket", f"`{ws_ms:.0f} мс`", ws_ms < 500)
 
     guild = i.guild
@@ -3572,7 +3605,9 @@ async def activity_tracker():
         db = players_store.read()
         n2s = {p.get("cs2red_nick"): s for s, p in db.items() if p.get("cs2red_nick")}
         seen = seen_store.read()
-        if not seen.pop("_seeded", None):
+        # _seeded больше НЕ удаляем через pop: если save не выполнится,
+        # ключ потеряется и бот заново начнёт тянуть ники через API.
+        if not seen.get("_seeded"):
             for sid in links.values():
                 if sid in n2s:
                     continue
@@ -3581,7 +3616,7 @@ async def activity_tracker():
                     n2s[u["nick"]] = sid
                     db.setdefault(sid, {})["cs2red_nick"] = u["nick"]
             await players_store.save(db)
-        # Чистим seen от ников, которых нет в текущем онлайне, иначе файл растёт вечно.
+            seen["_seeded"] = True        # Чистим seen от ников, которых нет в текущем онлайне, иначе файл растёт вечно.
         for nick in list(seen):
             if nick != "_seeded" and nick not in online:
                 seen.pop(nick, None)
@@ -3605,7 +3640,6 @@ async def activity_tracker():
             p.update(activity=a, discord_name=p.get("discord_name") or nick, updated_at=now)
             db[sid] = p
             matched += 1
-        seen["_seeded"] = True
         if matched:
             await players_store.save(db)
             log(f"🕐 Трекер: +{matched}")
@@ -3861,7 +3895,8 @@ async def before_rules_refresher():
 
 def _bot_diagnostics() -> str:
     """Сжатая сводка состояния бота — уходит в промпт ИИ вместе с ошибками."""
-    lines = [f"аптайм {int(time.time() - BOT_START_TIME)} c, WS {bot.latency * 1000:.0f} мс"]
+    lines = [f"аптайм {int(time.time() - BOT_START_TIME)} c, "
+             f"WS {(bot.latency * 1000 if bot.is_ready() else 0):.0f} мс"]
     for name, task_obj in (("auto_sync", auto_sync), ("activity_tracker", activity_tracker),
                            ("rules_refresher", rules_refresher)):
         try:
@@ -3936,7 +3971,6 @@ async def before_ai_error_watcher():
 
 _gh_log_last = 0.0
 _gh_log_saved = 0
-_gh_log_skipped: set = set()
 
 
 @tasks.loop(seconds=GITHUB_PUSH_INTERVAL_SECONDS)
@@ -3945,8 +3979,8 @@ async def data_push_loop():
     Выгружает изменённые базы в GitHub.
 
     В консоль Render пишем каждую выгрузку, а в канал — не чаще раза в
-    GITHUB_LOG_INTERVAL_SECONDS. Раньше строка уходила в канал на каждое
-    изменение, а players_db.json и seen.json меняются каждые 5 минут.
+    GITHUB_LOG_INTERVAL_SECONDS. Убрано сообщение про GITHUB_SYNC_FILES:
+    оно повторялось каждый час и засоряло лог.
     """
     global _gh_log_last, _gh_log_saved
     if github_sync is None or not github_sync.enabled or not _data_dirty:
@@ -3954,9 +3988,7 @@ async def data_push_loop():
 
     allowed = set(GITHUB_SYNC_FILES)
     files = sorted(_data_dirty & allowed)
-    blocked = sorted(_data_dirty - allowed)
     _data_dirty.clear()
-    _gh_log_skipped.update(blocked)
     if not files:
         return
 
@@ -3976,18 +4008,12 @@ async def data_push_loop():
         return
 
     _gh_log_last = now
-    parts = []
-    if _gh_log_saved:
-        parts.append(f"сохранено файлов: {_gh_log_saved}")
-    if _gh_log_skipped:
-        parts.append("не выгружаю (нет в GITHUB_SYNC_FILES): "
-                     + ", ".join(sorted(_gh_log_skipped)))
-    if failed:
-        parts.append(status)
-    if parts:
-        await ai_log("☁️ GitHub: " + "; ".join(parts))
+    if _gh_log_saved or failed:
+        msg = f"☁️ GitHub: сохранено файлов {_gh_log_saved}" if _gh_log_saved else "☁️ GitHub"
+        if failed:
+            msg += f"; {status}"
+        await ai_log(msg)
     _gh_log_saved = 0
-    _gh_log_skipped.clear()
 
 
 @data_push_loop.before_loop
