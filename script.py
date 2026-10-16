@@ -1,5 +1,5 @@
 """
-Quantum - бот клана (v28: ИИ-контекст, дашборд, быстрые запросы)
+Quantum - бот клана (v29: исправлен Invalid Webhook Token, все кнопки работают)
 """
 import os
 import re
@@ -153,8 +153,6 @@ SYNC_LOG_CHANNEL_ID = _env_int("SYNC_LOG_CHANNEL_ID", 0) or UNLINKED_CHANNEL_ID
 THREADS_CHANNEL_ID = _env_int("THREADS_CHANNEL_ID", 1236678127778795660)
 DB_CHANNEL_ID = _env_int("DB_CHANNEL_ID", 1554883485834149888)
 ERROR_LOG_CHANNEL_ID = _env_int("ERROR_LOG_CHANNEL_ID", 1511463623703265361)
-
-# Дашборд идёт в канал DB_CHANNEL_ID.
 DASHBOARD_CHANNEL_ID = DB_CHANNEL_ID
 
 AI_LOG_CHANNEL_ID = _env_int("AI_LOG_CHANNEL_ID",
@@ -294,8 +292,6 @@ for _cookie_name, _cookie_value in _cookie_env.items():
     if _cookie_value and not CS2RED_COOKIES.get(_cookie_name):
         CS2RED_COOKIES[_cookie_name] = _cookie_value
 
-# ВАЖНО: без "br" в Accept-Encoding. cs2red отдаёт Brotli, а aiohttp не умеет
-# его распаковывать без доп. библиотеки. Без "br" сервер отдаёт gzip/deflate.
 CS2RED_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                   "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -514,7 +510,6 @@ _error_ring = deque(maxlen=60)
 _ai_last_error_report = 0.0
 _ai_ask_last: dict = {}
 
-# Контекст диалога ИИ: channel_id -> deque последних сообщений
 _ai_context: dict = {}
 _AI_CONTEXT_MAX = 5
 
@@ -737,6 +732,24 @@ async def safe_send(target, *args, retries: int = 5, **kwargs):
     return None
 
 
+async def safe_ephemeral(i: discord.Interaction, text: str):
+    """
+    Безопасно отвечает эфемерным сообщением на интеракцию.
+    Если интеракция уже истекла — пишет в канал.
+    """
+    try:
+        if not i.response.is_done():
+            await i.response.send_message(text, ephemeral=True)
+        else:
+            await i.followup.send(text, ephemeral=True)
+    except discord.HTTPException:
+        # интеракция истекла — пишем в канал
+        try:
+            await safe_send(i.channel, f"⚠️ {text[:1500]}")
+        except Exception:
+            pass
+
+
 async def close_interaction(interaction: discord.Interaction, text: str = None,
                             ephemeral: bool = False):
     try:
@@ -771,7 +784,7 @@ async def run_with_timeout(coro, timeout: float, fallback_msg: str,
 class API:
     def __init__(self):
         self.session: aiohttp.ClientSession | None = None
-        self.sem = asyncio.Semaphore(4)   # больше параллельных запросов
+        self.sem = asyncio.Semaphore(4)
         self._clans_cache = {"ts": 0.0, "data": None}
         self.last_status: int | None = None
         self._auth_block_until = 0.0
@@ -1945,9 +1958,11 @@ bot = MyBot()
 
 
 # ============================================================
-# ПАНЕЛЬ УПРАВЛЕНИЯ
+# ПАНЕЛЬ УПРАВЛЕНИЯ (7 КНОПОК)
 # ============================================================
 class ControlPanel(discord.ui.View):
+    """Постоянная панель управления ботом."""
+
     def __init__(self):
         super().__init__(timeout=None)
 
@@ -1957,34 +1972,54 @@ class ControlPanel(discord.ui.View):
         d, r = divmod(up, 86400)
         h, r = divmod(r, 3600)
         m, s = divmod(r, 60)
-        us = (f"{d} д. {h} ч." if d else
-              f"{h} ч. {m} мин." if h else
-              f"{m} мин. {s} сек." if m else f"{s} сек.")
+        us = (f"{d}д {h}ч" if d else
+              f"{h}ч {m}м" if h else
+              f"{m}м {s}с" if m else f"{s}с")
 
         e = discord.Embed(
             title="🎛️ Панель управления Quantum",
-            description="Управление ботом клана TALENT. Кнопки ниже.",
+            description=(
+                "Управление ботом клана **TALENT**.\n"
+                "Нажми кнопку — действие выполнится."
+            ),
             color=AI_EMBED_COLOR,
             timestamp=now_utc(),
         )
         e.add_field(name="⏱ Аптайм", value=f"`{us}`", inline=True)
         e.add_field(name="📡 WS", value=f"`{ws:.0f} мс`", inline=True)
         e.add_field(name="🍪 Cookies", value=f"`{len(CS2RED_COOKIES)}`", inline=True)
-        e.add_field(name="🔗 Привязок",
-                    value=f"`{len(links_store.read())}`", inline=True)
-        e.add_field(name="📁 Заявок",
-                    value=f"`{len(votes_store.read())}`", inline=True)
-        e.add_field(name="⚠️ Ошибок",
-                    value=f"`{len(_error_ring)}`", inline=True)
-        e.add_field(name="🤖 ИИ",
-                    value=(ai_client.status_line()[:200] if ai_client else "выключен"),
-                    inline=False)
-        e.add_field(name="📚 Правила",
-                    value=(rules_base.status_line()[:200] if rules_base else "нет модуля"),
-                    inline=False)
-        e.add_field(name="☁️ GitHub",
-                    value=(github_sync.status_line()[:200] if github_sync else "не загружен"),
-                    inline=False)
+        e.add_field(name="🔗 Привязок", value=f"`{len(links_store.read())}`", inline=True)
+        e.add_field(name="📁 Заявок", value=f"`{len(votes_store.read())}`", inline=True)
+        e.add_field(name="⚠️ Ошибок", value=f"`{len(_error_ring)}`", inline=True)
+
+        e.add_field(
+            name="🤖 ИИ",
+            value=(ai_client.status_line()[:200] if ai_client else "выключен"),
+            inline=False,
+        )
+        e.add_field(
+            name="📚 Правила",
+            value=(rules_base.status_line()[:200] if rules_base else "нет модуля"),
+            inline=False,
+        )
+        e.add_field(
+            name="☁️ GitHub",
+            value=(github_sync.status_line()[:200] if github_sync else "не загружен"),
+            inline=False,
+        )
+        e.add_field(
+            name="💡 Что делают кнопки",
+            value=(
+                "**🔗 Привязать всех** — поиск всех Discord-участников по username на cs2red + автоматическая привязка\n"
+                "**🔄 Синхронизация** — обновить роли по cs2red\n"
+                "**📚 Обновить правила** — перечитать rules.txt\n"
+                "**☁️ Выгрузить в GitHub** — сохранить JSON в репозиторий\n"
+                "**🩺 Health** — состояние систем\n"
+                "**📊 Статус ИИ** — состояние ИИ и последние ошибки\n"
+                "**🔄 Обновить панель** — перерисовать этот эмбед"
+            ),
+            inline=False,
+        )
         e.set_footer(text=f"Quantum • {utc_stamp()}")
         if bot.user:
             e.set_thumbnail(url=bot.user.display_avatar.url)
@@ -1994,16 +2029,16 @@ class ControlPanel(discord.ui.View):
                        custom_id="panel_link_all", row=0)
     async def link_all_btn(self, i, b):
         if not is_moderator(i.user.id, i.guild):
-            await i.response.send_message("❌ Нет доступа.", ephemeral=True)
+            await safe_ephemeral(i, "❌ Нет доступа.")
             return
 
         log("🔗 Кнопка «Привязать всех» нажата")
 
         await i.response.defer(ephemeral=True)
         try:
-            await safe_send(i.followup,
+            await i.followup.send(
                 f"⏳ Массовая привязка запущена. Задержка: {LINK_ALL_DELAY} сек. "
-                f"Отчёт придёт в канал ручного разбора.",
+                f"Отчёт придёт в <#{UNLINKED_CHANNEL_ID}>.",
                 ephemeral=True)
         except Exception as e:
             log(f"⚠️ link_all: ephemeral: {e}")
@@ -2013,12 +2048,7 @@ class ControlPanel(discord.ui.View):
             links = links_store.read()
             guild = i.guild
 
-            added = []
-            already = []
-            not_found = []
-            multiple = []
-            errors = []
-
+            added, already, not_found, multiple, errors = [], [], [], [], []
             total = len([m for m in guild.members if not m.bot and str(m.id) not in links])
             done = 0
 
@@ -2095,7 +2125,6 @@ class ControlPanel(discord.ui.View):
                     log(f"⚠️ link_all: роли {member.display_name}: {e}")
 
                 done += 1
-
                 if done % 25 == 0:
                     try:
                         ch = bot.get_channel(MANUAL_CHANNEL)
@@ -2127,7 +2156,6 @@ class ControlPanel(discord.ui.View):
                                  + "\n".join(errors[:15]))
 
                 text_manual = "\n".join(lines)
-
                 try:
                     ch = bot.get_channel(MANUAL_CHANNEL)
                     if ch is None:
@@ -2139,15 +2167,17 @@ class ControlPanel(discord.ui.View):
                 except Exception as e:
                     log(f"⚠️ link_all: отчёт: {e}")
 
+            # Ответ в канал, а не в followup (followup может истечь через 15 мин)
             try:
-                await i.followup.send(
-                    f"📊 Массовая привязка завершена: "
-                    f"+{len(added)}, уже {len(already)}, мульти {len(multiple)}, "
-                    f"не найдено {len(not_found)}, ошибок {len(errors)}. "
-                    f"Подробный отчёт — в <#{MANUAL_CHANNEL}>",
-                    ephemeral=True)
-            except Exception as e:
-                log(f"⚠️ link_all: финальный ephemeral: {e}")
+                ch = bot.get_channel(MANUAL_CHANNEL)
+                if ch:
+                    await safe_send(
+                        ch,
+                        f"📊 **Массовая привязка завершена:** "
+                        f"+{len(added)}, уже {len(already)}, мульти {len(multiple)}, "
+                        f"не найдено {len(not_found)}, ошибок {len(errors)}")
+            except Exception:
+                pass
 
             await ai_log(f"🔗 Массовая привязка: +{len(added)}, уже {len(already)}, "
                          f"мульти {len(multiple)}, не найдено {len(not_found)}, "
@@ -2155,7 +2185,7 @@ class ControlPanel(discord.ui.View):
         except Exception as e:
             await log_error(i.client, "link_all_btn", e)
             try:
-                await i.followup.send(f"❌ Ошибка: {str(e)[:200]}", ephemeral=True)
+                await safe_send(i.channel, f"❌ link_all ошибка: {str(e)[:200]}")
             except Exception:
                 pass
 
@@ -2163,15 +2193,17 @@ class ControlPanel(discord.ui.View):
                        custom_id="panel_sync", row=0)
     async def sync_btn(self, i, b):
         if not is_moderator(i.user.id, i.guild):
-            await i.response.send_message("❌ Нет доступа.", ephemeral=True)
+            await safe_ephemeral(i, "❌ Нет доступа.")
             return
         log("🔄 Кнопка «Синхронизация» нажата")
+
         await i.response.defer(ephemeral=True)
         try:
             links = links_store.read()
             guild = i.guild
             dups = duplicate_steam_ids()
             count = 0
+            errors = 0
             for did, sid in dict(links).items():
                 if api.auth_blocked():
                     break
@@ -2185,37 +2217,63 @@ class ControlPanel(discord.ui.View):
                     await sync_clan_role_by_id(guild, m, sid)
                     count += 1
                 except Exception as e:
+                    errors += 1
                     await log_error(i.client, f"panel.sync:{did}", e)
                 await asyncio.sleep(SYNC_BTN_DELAY)
-            await i.followup.send(f"✅ Синхронизировано: {count}", ephemeral=True)
+
+            # Отправляем результат в канал, не в followup
+            try:
+                await safe_send(
+                    i.channel,
+                    f"✅ **Синхронизация завершена** (запустил {i.user.mention}): "
+                    f"обработано {count}, ошибок {errors}, пропущено дублей {len(dups)}")
+            except Exception as e:
+                log(f"⚠️ sync_btn: не отправил в канал: {e}")
+
+            # Пытаемся ещё и в ephemeral — если интеракция ещё жива
+            try:
+                await i.followup.send(
+                    f"✅ Синхронизировано: {count} (ошибок {errors})",
+                    ephemeral=True)
+            except discord.HTTPException as e:
+                log(f"⚠️ sync_btn: followup недоступен: {e}")
         except Exception as e:
             await log_error(i.client, "panel.sync", e)
-            await i.followup.send(f"❌ Ошибка: {str(e)[:200]}", ephemeral=True)
+            try:
+                await safe_send(i.channel, f"❌ sync ошибка: {str(e)[:200]}")
+            except Exception:
+                pass
 
     @discord.ui.button(label="📚 Обновить правила", style=discord.ButtonStyle.primary,
                        custom_id="panel_rules", row=1)
     async def rules_btn(self, i, b):
         if not is_moderator(i.user.id, i.guild):
-            await i.response.send_message("❌ Нет доступа.", ephemeral=True)
+            await safe_ephemeral(i, "❌ Нет доступа.")
             return
         await i.response.defer(ephemeral=True)
         status = await refresh_rules_once()
         await ai_log(f"📚 Правила обновлены вручную: {status}")
-        await i.followup.send(f"✅ {status}", ephemeral=True)
+        try:
+            await i.followup.send(f"✅ {status}", ephemeral=True)
+        except discord.HTTPException:
+            await safe_send(i.channel, f"✅ {status}")
 
     @discord.ui.button(label="☁️ Выгрузить в GitHub", style=discord.ButtonStyle.primary,
                        custom_id="panel_github", row=1)
     async def github_btn(self, i, b):
         if not is_moderator(i.user.id, i.guild):
-            await i.response.send_message("❌ Нет доступа.", ephemeral=True)
+            await safe_ephemeral(i, "❌ Нет доступа.")
             return
         await i.response.defer(ephemeral=True)
         if github_sync is None or not github_sync.enabled:
-            await i.followup.send("❌ GitHub не настроен.", ephemeral=True)
+            await safe_ephemeral(i, "❌ GitHub не настроен.")
             return
         pushed, status = await github_sync.push(
             api.session or _NoSession(), GITHUB_SYNC_FILES, DATA_DIR)
-        await i.followup.send(f"✅ {status}", ephemeral=True)
+        try:
+            await i.followup.send(f"✅ {status}", ephemeral=True)
+        except discord.HTTPException:
+            await safe_send(i.channel, f"☁️ {status}")
 
     @discord.ui.button(label="🩺 Health", style=discord.ButtonStyle.secondary,
                        custom_id="panel_health", row=2)
@@ -2229,13 +2287,19 @@ class ControlPanel(discord.ui.View):
                 f"**ИИ:** {ai_client.status_line() if ai_client else 'выкл'}\n"
                 f"**Правила:** {rules_base.status_line() if rules_base else 'нет'}\n"
                 f"**GitHub:** {github_sync.status_line() if github_sync else 'нет'}")
-        await i.followup.send(text[:1900], ephemeral=True)
+        try:
+            await i.followup.send(text[:1900], ephemeral=True)
+        except discord.HTTPException:
+            await safe_send(i.channel, text[:1900])
 
     @discord.ui.button(label="📊 Статус ИИ", style=discord.ButtonStyle.secondary,
                        custom_id="panel_ai", row=2)
     async def ai_btn(self, i, b):
         await i.response.defer(ephemeral=True)
-        await i.followup.send(ai_status_text()[:1900], ephemeral=True)
+        try:
+            await i.followup.send(ai_status_text()[:1900], ephemeral=True)
+        except discord.HTTPException:
+            await safe_send(i.channel, ai_status_text()[:1900])
 
     @discord.ui.button(label="🔄 Обновить панель", style=discord.ButtonStyle.secondary,
                        custom_id="panel_refresh", row=2)
@@ -2311,7 +2375,7 @@ async def sync_cmd(i: discord.Interaction):
             f"🔄 /sync — обработано {count}/{total}, ошибок {errors}, дублей {len(dups)}")
     except Exception as e:
         await log_error(i.client, "/sync", e)
-        await safe_send(i.followup, f"❌ Ошибка: {str(e)[:200]}", ephemeral=False)
+        await close_interaction(i, f"❌ Ошибка: {str(e)[:200]}", ephemeral=False)
 
 
 @bot.tree.error
@@ -2322,8 +2386,11 @@ async def on_app_command_error(i, err):
                 await i.response.send_message(text, ephemeral=True)
             else:
                 await safe_send(i.followup, text, ephemeral=True)
-        except Exception as e:
-            log(f"⚠️ error-reply: {e}")
+        except Exception:
+            try:
+                await safe_send(i.channel, text)
+            except Exception:
+                pass
 
     if isinstance(err, app_commands.CommandOnCooldown):
         await _reply(f"⏱ Слишком часто. Подожди {err.retry_after:.0f} сек.")
@@ -2350,7 +2417,7 @@ def admin_only(i):
 
 async def _admin_guard(i):
     if not admin_only(i):
-        await i.response.send_message("❌ Нужны права админа.", ephemeral=True)
+        await safe_ephemeral(i, "❌ Нужны права админа.")
         return False
     return True
 
@@ -2363,14 +2430,14 @@ async def _admin_guard(i):
 async def link(i, steam_id: str):
     left = _link_cooldown_left(i.user)
     if left > 0:
-        await i.response.send_message(f"⏱ Подожди {left:.0f} сек.", ephemeral=True)
+        await safe_ephemeral(i, f"⏱ Подожди {left:.0f} сек.")
         return
 
     sid = await resolve_steam_id(steam_id)
     if not sid:
-        await i.response.send_message(
+        await safe_ephemeral(i,
             "❌ Не понял SteamID. Пришли 17 цифр (`7656119…`) "
-            "или ссылку на профиль Steam.", ephemeral=True)
+            "или ссылку на профиль Steam.")
         return
 
     await i.response.defer(ephemeral=False)
@@ -2515,7 +2582,7 @@ async def strip_managed_roles(member) -> list:
                        member="Участник Discord, которого привязываем")
 async def admlink(i, steam_id: str, member: discord.Member):
     if not is_moderator(i.user.id, i.guild):
-        await i.response.send_message("❌ Нет доступа. Команда только для модерации.", ephemeral=True)
+        await safe_ephemeral(i, "❌ Нет доступа. Команда только для модерации.")
         await ai_log(f"🚫 {i.user} пытался вызвать /admlink без прав")
         return
 
@@ -2592,7 +2659,7 @@ async def admlink(i, steam_id: str, member: discord.Member):
 @app_commands.describe(member="Участник Discord")
 async def admunlink(i, member: discord.Member):
     if not is_moderator(i.user.id, i.guild):
-        await i.response.send_message("❌ Нет доступа. Команда только для модерации.", ephemeral=True)
+        await safe_ephemeral(i, "❌ Нет доступа. Команда только для модерации.")
         await ai_log(f"🚫 {i.user} пытался вызвать /admunlink без прав")
         return
     await i.response.defer(ephemeral=False)
@@ -3234,7 +3301,7 @@ async def moders(i):
 @bot.tree.command(name="give", description="Выдать доступ")
 async def give(i, user: discord.Member):
     if not admin_only(i):
-        await i.response.send_message("❌", ephemeral=False)
+        await safe_ephemeral(i, "❌")
         return
     await i.response.defer(ephemeral=False)
     try:
@@ -3252,7 +3319,7 @@ async def give(i, user: discord.Member):
 @bot.tree.command(name="take", description="Забрать доступ")
 async def take(i, user: discord.Member):
     if not admin_only(i):
-        await i.response.send_message("❌", ephemeral=False)
+        await safe_ephemeral(i, "❌")
         return
     await i.response.defer(ephemeral=False)
     try:
@@ -3276,11 +3343,11 @@ def _get_steam_of(m):
 
 async def _activity_guard(i, m, need_admin=True):
     if need_admin and not admin_only(i):
-        await i.response.send_message("❌", ephemeral=False)
+        await safe_ephemeral(i, "❌")
         return None
     sid = _get_steam_of(m)
     if not sid:
-        await i.response.send_message("❌ Нет SteamID", ephemeral=False)
+        await safe_ephemeral(i, "❌ Нет SteamID")
         return None
     return sid
 
@@ -3291,7 +3358,7 @@ async def activity_set(i, member: discord.Member, server: str, hours: float):
     if not sid:
         return
     if hours < 0:
-        await i.response.send_message("❌", ephemeral=False)
+        await safe_ephemeral(i, "❌")
         return
     await i.response.defer(ephemeral=False)
     try:
@@ -3467,7 +3534,6 @@ async def answer_rules(question: str) -> tuple:
 
 
 async def answer_general(question: str, channel_id: int = 0) -> tuple:
-    """Свободный вопрос к ИИ с контекстом диалога."""
     if ai_client is None or not ai_client.enabled:
         return ("⚠️ ИИ не настроен: администратору нужно добавить `GEMINI_API_KEY`.",
                 "ИИ выключен")
@@ -3532,7 +3598,7 @@ def ai_status_text() -> str:
 async def rules_cmd(i, question: str):
     left = _ai_cooldown_left(i.user.id)
     if left > 0:
-        await i.response.send_message(f"⏱ Подожди {left:.0f} сек.", ephemeral=True)
+        await safe_ephemeral(i, f"⏱ Подожди {left:.0f} сек.")
         return
     await i.response.defer(ephemeral=False)
     _ai_ask_last[i.user.id] = time.time()
@@ -3550,7 +3616,7 @@ async def rules_cmd(i, question: str):
 async def ask_cmd(i, question: str):
     left = _ai_cooldown_left(i.user.id)
     if left > 0:
-        await i.response.send_message(f"⏱ Подожди {left:.0f} сек.", ephemeral=True)
+        await safe_ephemeral(i, f"⏱ Подожди {left:.0f} сек.")
         return
     await i.response.defer(ephemeral=False)
     _ai_ask_last[i.user.id] = time.time()
@@ -3572,8 +3638,7 @@ async def ai_status_cmd(i):
 @bot.tree.command(name="ai_clear", description="Очистить контекст диалога с ИИ в этом канале")
 async def ai_clear_cmd(i: discord.Interaction):
     _ai_context_clear(i.channel_id)
-    await i.response.send_message("✅ Контекст диалога очищен. ИИ больше не помнит "
-                                  "предыдущие сообщения в этом канале.", ephemeral=True)
+    await safe_ephemeral(i, "✅ Контекст диалога очищен.")
 
 
 # ---------- префиксные версии ----------
@@ -3631,7 +3696,7 @@ async def ai_status_prefix(ctx):
 @bot.tree.command(name="rules_probe", description="Диагностика: где бот ищет правила")
 async def rules_probe_cmd(i):
     if not is_moderator(i.user.id, i.guild):
-        await i.response.send_message("❌ Нет доступа.", ephemeral=True)
+        await safe_ephemeral(i, "❌ Нет доступа.")
         return
     await i.response.defer(ephemeral=False)
     if rules_base is None:
@@ -3832,7 +3897,7 @@ async def build_dashboard_embed() -> discord.Embed:
     if top_lines:
         e.add_field(
             name="🏆 Топ-10 активных за неделю",
-            value="\n".join(top_lines) if top_lines else "—",
+            value="\n".join(top_lines),
             inline=False,
         )
 
