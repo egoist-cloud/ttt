@@ -1,5 +1,5 @@
 """
-Quantum - бот клана (v25: /sync вручную, auto_sync отключён)
+Quantum - бот клана (v26: полный, все кнопки в панели)
 """
 import os
 import re
@@ -23,7 +23,6 @@ from discord import app_commands
 from dotenv import load_dotenv
 from flask import Flask
 
-# ИИ-модуль отдельным файлом: если его забыли залить, бот всё равно стартует.
 try:
     import ai_rules
 except Exception as _ai_import_error:
@@ -32,7 +31,6 @@ except Exception as _ai_import_error:
 else:
     _AI_IMPORT_ERROR = ""
 
-# Хранилище данных в GitHub — тоже необязательное.
 try:
     import github_sync as github_sync_module
 except Exception as _gh_import_error:
@@ -234,7 +232,6 @@ CS2RED_AUTH_BLOCK_SECONDS = max(30, _env_int("CS2RED_AUTH_BLOCK_SECONDS", 600))
 # ============================================================
 # ЗАДЕРЖКИ
 # ============================================================
-# auto_sync отключён — переменная оставлена для /health.
 SYNC_INTERVAL_MINUTES = max(1, _env_int("SYNC_INTERVAL_MINUTES", 360))
 
 ACTIVITY_TRACK_SECONDS = max(60, _env_int("ACTIVITY_TRACK_SECONDS", 900))
@@ -244,7 +241,6 @@ CLANS_CACHE_TTL = 300
 REQUEST_DELAY = 0.3
 SYNC_BTN_DELAY = max(1, _env_int("SYNC_BTN_DELAY", 3))
 LINK_ALL_DELAY = max(1, _env_int("LINK_ALL_DELAY", 20))
-# Задержка в /sync (сек) — 3 сек между игроками.
 SYNC_CMD_DELAY = max(1, _env_int("SYNC_CMD_DELAY", 3))
 
 
@@ -477,7 +473,7 @@ setup_store = JsonStore(data_path("setup.json"), dict)
 
 
 # ============================================================
-# ИИ И ПРАВИЛА: ОБЪЕКТЫ
+# ИИ И ПРАВИЛА
 # ============================================================
 ai_client = None
 rules_base = None
@@ -1909,7 +1905,7 @@ class MyBot(commands.Bot):
             self.add_view(ControlPanel())
             log("✅ ControlPanel добавлен (панель управления)")
 
-            # ВАЖНО: auto_sync ОТКЛЮЧЁН — запускается вручную через /sync.
+            # auto_sync ОТКЛЮЧЁН — запускается вручную через /sync.
             # auto_sync.start()
             activity_tracker.start()
 
@@ -1938,7 +1934,7 @@ bot = MyBot()
 
 
 # ============================================================
-# ПАНЕЛЬ УПРАВЛЕНИЯ
+# ПАНЕЛЬ УПРАВЛЕНИЯ (7 КНОПОК)
 # ============================================================
 class ControlPanel(discord.ui.View):
     """Постоянная панель управления ботом с чёрной полосой."""
@@ -1985,6 +1981,178 @@ class ControlPanel(discord.ui.View):
             e.set_thumbnail(url=bot.user.display_avatar.url)
         return e
 
+    # ----------------- КНОПКА 1: ПРИВЯЗАТЬ ВСЕХ -----------------
+    @discord.ui.button(label="🔗 Привязать всех", style=discord.ButtonStyle.success,
+                       custom_id="panel_link_all", row=0)
+    async def link_all_btn(self, i, b):
+        """
+        Массовая привязка Discord ↔ SteamID.
+
+        Логика:
+          1. Проходим по всем участникам Discord-сервера.
+          2. Берём Discord username (member.name) — например, ddkkx.
+          3. Ищем его через /api/admin/users?search=<username>.
+          4. 0 аккаунтов → в канал ручного разбора «не найдено».
+          5. 1 аккаунт  → привязываем автоматически + выдаём роли.
+          6. 2+ аккаунта → в канал ручного разбора «несколько аккаунтов».
+
+        Задержка LINK_ALL_DELAY (по умолчанию 20 сек) между запросами.
+        """
+        if not is_moderator(i.user.id, i.guild):
+            await i.response.send_message("❌ Нет доступа.", ephemeral=True)
+            return
+
+        await i.response.defer(ephemeral=True)
+        await safe_send(i.followup, "⏳ Массовая привязка запущена. "
+                                    f"Задержка между запросами: {LINK_ALL_DELAY} сек. "
+                                    f"Это займёт продолжительное время — "
+                                    f"отчёт придёт в канал ручного разбора.", ephemeral=True)
+
+        MANUAL_CHANNEL = UNLINKED_CHANNEL_ID
+        links = links_store.read()
+        guild = i.guild
+
+        added = []
+        already = []
+        not_found = []
+        multiple = []
+        errors = []
+
+        total = len([m for m in guild.members if not m.bot and str(m.id) not in links])
+        done = 0
+
+        for member in guild.members:
+            if member.bot:
+                continue
+            if str(member.id) in links:
+                already.append(member.display_name)
+                continue
+
+            username = (member.name or "").strip()
+            if not username:
+                continue
+
+            try:
+                data = await api._get_json(
+                    "https://cs2red.ru/api/admin/users",
+                    params={"begin": 0, "count": 10, "search": username}
+                )
+            except Exception as e:
+                errors.append(f"{member.display_name} (`{username}`): {e}")
+                await asyncio.sleep(LINK_ALL_DELAY)
+                continue
+
+            if not data or not data.get("success"):
+                not_found.append(f"{member.display_name} (`{username}`)")
+                await asyncio.sleep(LINK_ALL_DELAY)
+                continue
+
+            users = data.get("users") or []
+            exact = [u for u in users
+                     if str(u.get("nick", "")).lower() == username.lower()]
+            if not exact:
+                exact = users
+
+            if not exact:
+                not_found.append(f"{member.display_name} (`{username}`)")
+                await asyncio.sleep(LINK_ALL_DELAY)
+                continue
+
+            if len(exact) > 1:
+                accs = ", ".join(
+                    f"`{u.get('nick', '?')}` (`{u.get('steamid64', '?')}`)"
+                    for u in exact[:5]
+                )
+                multiple.append(
+                    f"{member.display_name} (`{username}`): {len(exact)} акк. → {accs}"
+                )
+                await asyncio.sleep(LINK_ALL_DELAY)
+                continue
+
+            steamid = str(exact[0].get("steamid64") or "")
+            if not steamid:
+                not_found.append(f"{member.display_name} (`{username}`) — нет SteamID")
+                await asyncio.sleep(LINK_ALL_DELAY)
+                continue
+
+            try:
+                await links_store.update(lambda d: d.update({str(member.id): steamid}))
+            except Exception as e:
+                errors.append(f"{member.display_name}: не сохранил — {e}")
+                await asyncio.sleep(LINK_ALL_DELAY)
+                continue
+
+            added.append(
+                f"✅ {member.display_name} (`{username}`) → `{steamid}` "
+                f"({exact[0].get('nick', '?')})"
+            )
+
+            try:
+                await sync_role_by_id(guild, member, steamid)
+                await sync_clan_role_by_id(guild, member, steamid)
+            except Exception as e:
+                log(f"⚠️ link_all: роли {member.display_name}: {e}")
+
+            done += 1
+
+            if done % 25 == 0:
+                try:
+                    ch = bot.get_channel(MANUAL_CHANNEL)
+                    if ch:
+                        await safe_send(ch, f"⏳ Прогресс: обработано {done}/{total}…")
+                except Exception:
+                    pass
+
+            await asyncio.sleep(LINK_ALL_DELAY)
+
+        if multiple or not_found or errors or added:
+            lines = [f"📋 **Массовая привязка завершена** — {utc_stamp()}\n"]
+            lines.append(f"✅ Привязано: **{len(added)}**")
+            lines.append(f"ℹ️ Уже привязано: **{len(already)}**")
+            lines.append(f"⚠️ Несколько аккаунтов: **{len(multiple)}**")
+            lines.append(f"❓ Не найдено: **{len(not_found)}**")
+            lines.append(f"🔴 Ошибок: **{len(errors)}**\n")
+
+            if added:
+                lines.append("**Последние привязанные:**\n" + "\n".join(added[-10:]) + "\n")
+            if multiple:
+                lines.append(f"⚠️ **Несколько аккаунтов** ({len(multiple)}):\n"
+                             + "\n".join(multiple[:20]) + "\n")
+            if not_found:
+                lines.append(f"❓ **Не найдено на cs2red** ({len(not_found)}):\n"
+                             + "\n".join(not_found[:30]) + "\n")
+            if errors:
+                lines.append(f"🔴 **Ошибки** ({len(errors)}):\n"
+                             + "\n".join(errors[:15]))
+
+            text_manual = "\n".join(lines)
+
+            try:
+                ch = bot.get_channel(MANUAL_CHANNEL)
+                if ch is None:
+                    log(f"⚠️ link_all: канал {MANUAL_CHANNEL} не найден")
+                else:
+                    for k in range(0, len(text_manual), 1900):
+                        await safe_send(ch, text_manual[k:k + 1900])
+                        await asyncio.sleep(1)
+            except Exception as e:
+                log(f"⚠️ link_all: отчёт: {e}")
+
+        try:
+            await i.followup.send(
+                f"📊 Массовая привязка завершена: "
+                f"+{len(added)}, уже {len(already)}, мульти {len(multiple)}, "
+                f"не найдено {len(not_found)}, ошибок {len(errors)}. "
+                f"Подробный отчёт — в <#{MANUAL_CHANNEL}>",
+                ephemeral=True)
+        except Exception as e:
+            log(f"⚠️ link_all: финальный ephemeral: {e}")
+
+        await ai_log(f"🔗 Массовая привязка: +{len(added)}, уже {len(already)}, "
+                     f"мульти {len(multiple)}, не найдено {len(not_found)}, "
+                     f"ошибок {len(errors)}")
+
+    # ----------------- КНОПКА 2: СИНХРОНИЗАЦИЯ -----------------
     @discord.ui.button(label="🔄 Синхронизация", style=discord.ButtonStyle.primary,
                        custom_id="panel_sync", row=0)
     async def sync_btn(self, i, b):
@@ -2017,6 +2185,7 @@ class ControlPanel(discord.ui.View):
             await log_error(i.client, "panel.sync", e)
             await i.followup.send(f"❌ Ошибка: {str(e)[:200]}", ephemeral=True)
 
+    # ----------------- КНОПКА 3: ОБНОВИТЬ ПРАВИЛА -----------------
     @discord.ui.button(label="📚 Обновить правила", style=discord.ButtonStyle.primary,
                        custom_id="panel_rules", row=1)
     async def rules_btn(self, i, b):
@@ -2028,6 +2197,7 @@ class ControlPanel(discord.ui.View):
         await ai_log(f"📚 Правила обновлены вручную: {status}")
         await i.followup.send(f"✅ {status}", ephemeral=True)
 
+    # ----------------- КНОПКА 4: ВЫГРУЗИТЬ В GITHUB -----------------
     @discord.ui.button(label="☁️ Выгрузить в GitHub", style=discord.ButtonStyle.primary,
                        custom_id="panel_github", row=1)
     async def github_btn(self, i, b):
@@ -2042,6 +2212,7 @@ class ControlPanel(discord.ui.View):
             api.session or _NoSession(), GITHUB_SYNC_FILES, DATA_DIR)
         await i.followup.send(f"✅ {status}", ephemeral=True)
 
+    # ----------------- КНОПКА 5: HEALTH -----------------
     @discord.ui.button(label="🩺 Health", style=discord.ButtonStyle.secondary,
                        custom_id="panel_health", row=2)
     async def health_btn(self, i, b):
@@ -2056,12 +2227,14 @@ class ControlPanel(discord.ui.View):
                 f"**GitHub:** {github_sync.status_line() if github_sync else 'нет'}")
         await i.followup.send(text[:1900], ephemeral=True)
 
+    # ----------------- КНОПКА 6: СТАТУС ИИ -----------------
     @discord.ui.button(label="📊 Статус ИИ", style=discord.ButtonStyle.secondary,
                        custom_id="panel_ai", row=2)
     async def ai_btn(self, i, b):
         await i.response.defer(ephemeral=True)
         await i.followup.send(ai_status_text()[:1900], ephemeral=True)
 
+    # ----------------- КНОПКА 7: ОБНОВИТЬ ПАНЕЛЬ -----------------
     @discord.ui.button(label="🔄 Обновить панель", style=discord.ButtonStyle.secondary,
                        custom_id="panel_refresh", row=2)
     async def refresh_btn(self, i, b):
@@ -2083,7 +2256,6 @@ async def panel_cmd(i: discord.Interaction):
 # ============================================================
 @bot.tree.command(name="sync", description="Запустить синхронизацию ролей вручную (только для модераторов)")
 async def sync_cmd(i: discord.Interaction):
-    """Принудительно запускает синхронизацию ролей прямо сейчас."""
     if not is_moderator(i.user.id, i.guild):
         await i.response.send_message("❌ Нет доступа.", ephemeral=True)
         return
@@ -2943,7 +3115,7 @@ async def health(i: discord.Interaction):
             add("⚙️", f"Задача `{name}`", "❌ не запущена", False)
 
     add("⚙️", "Задача `auto_sync`",
-        "❌ отключена (запускается вручную через `/sync`)", True)
+        "❌ отключена (запуск вручную через `/sync`)", True)
 
     for name, cid in [
         ("LOG_CHANNEL_ID", LOG_CHANNEL_ID),
