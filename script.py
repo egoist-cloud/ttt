@@ -1,5 +1,5 @@
 """
-Quantum - бот клана (v23: кнопка "Привязать всех", финальная версия)
+Quantum - бот клана (v18: исправлен Cloudflare 429, все safe_send)
 """
 import os
 import re
@@ -188,13 +188,6 @@ THREADS_CHANNEL_ID = _env_int("THREADS_CHANNEL_ID", 1236678127778795660)
 DB_CHANNEL_ID = _env_int("DB_CHANNEL_ID", 1554883485834149888)
 ERROR_LOG_CHANNEL_ID = _env_int("ERROR_LOG_CHANNEL_ID", 1511463623703265361)
 
-# Куда идут ВСЕ логи ИИ (эмбеды).
-AI_LOG_CHANNEL_ID = _env_int("AI_LOG_CHANNEL_ID",
-                             _env_int("AI_REPORT_CHANNEL_ID", 1556427610160889907))
-
-# Канал для панели управления.
-PANEL_CHANNEL_ID = _env_int("PANEL_CHANNEL_ID", 1554796338661826660)
-
 ALLOWED_ROLE_ID = _env_int("ALLOWED_ROLE_ID", 0)
 # Заместители: могут закрыть заявку единолично, без второго голоса.
 # Ролей может быть несколько — перечисли через запятую:
@@ -243,6 +236,10 @@ GEMINI_API_KEY = (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or 
 AI_ENABLED = _env_int("AI_ENABLED", 1) == 1
 AI_MODEL = (os.getenv("AI_MODEL") or "").strip()
 AI_API_URL = (os.getenv("AI_API_URL") or "").strip()
+# Сюда идут ВСЕ логи ИИ: запросы, ответы, ошибки, разборы ошибок, обновление правил.
+# Поддерживаем оба имени: в Render у тебя уже есть AI_REPORT_CHANNEL_ID.
+AI_LOG_CHANNEL_ID = _env_int("AI_LOG_CHANNEL_ID",
+                             _env_int("AI_REPORT_CHANNEL_ID", 1554796338661826660))
 # gemini | openai | auto (auto: Gemini, если есть ключ, иначе OpenAI-совместимый)
 AI_PROVIDER = (os.getenv("AI_PROVIDER") or "auto").strip().lower()
 # Для провайдера openai: базовый URL (LLM7, OpenRouter, свой прокси)
@@ -279,8 +276,7 @@ GITHUB_LOG_INTERVAL_SECONDS = max(60, _env_int("GITHUB_LOG_INTERVAL_SECONDS", 36
 ACTIVITY_GOAL_HOURS = 8
 ACTIVITY_MIN_HOURS = 8
 APPLY_EMBED_COLOR = 0x2B2D31
-# Чёрная полоса для всех логов и панели (было 0x5865F2 — синяя).
-AI_EMBED_COLOR = 0x000000
+AI_EMBED_COLOR = 0x5865F2
 
 BOT_START_TIME = time.time()
 
@@ -289,7 +285,6 @@ CMD_API_TIMEOUT = 30.0
 # Если админка cs2red отдаёт 403 (обычно протухли cookie), столько секунд
 # не дёргаем её повторно и не заливаем лог одинаковыми строками.
 CS2RED_AUTH_BLOCK_SECONDS = max(30, _env_int("CS2RED_AUTH_BLOCK_SECONDS", 600))
-
 
 def _parse_cookies(raw: str) -> dict:
     """
@@ -352,15 +347,11 @@ for _cookie_name, _cookie_value in _cookie_env.items():
     if _cookie_value and not CS2RED_COOKIES.get(_cookie_name):
         CS2RED_COOKIES[_cookie_name] = _cookie_value
 
-# User-Agent приведён к Brave 154: в куке bh у cs2red закодирован именно он.
-# Если поставить Chrome/124, сайт может отдать 403 из-за несовпадения UA и cookie.
 CS2RED_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                  "AppleWebKit/537.36 (KHTML, like Gecko) "
-                  "Chrome/154.0.0.0 Safari/537.36 Brave/154.0.0.0",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Accept": "*/*",
-    "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
-    "Accept-Encoding": "gzip, deflate, br",
+    "Accept-Language": "ru-RU,ru;q=0.6",
     "Referer": "https://cs2red.ru/admin",
     "Origin": "https://cs2red.ru",
     "X-Requested-With": "XMLHttpRequest",
@@ -368,20 +359,10 @@ CS2RED_HEADERS = {
     "Sec-Fetch-Mode": "cors",
     "Sec-Fetch-Site": "same-origin",
     "Sec-GPC": "1",
-    "Connection": "keep-alive",
 }
 
-DEFAULT_ROLE_MAP = {
-    1: None,
-    2: "VIP",
-    3: "Premium",
-    4: "Moderator",
-    5: "Администратор",
-    6: "Амбассадор",
-    7: "Спонсор",
-    9: "Plus",
-    13: "Гл.Модератор",
-}
+DEFAULT_ROLE_MAP = {1: None, 2: "VIP", 3: "Premium", 4: "Moderator",
+                    5: "Администратор", 6: "Амбассадор", 9: "Plus"}
 ROLE_DISPLAY_MAP = {1: "Мл. Модер", 3: "Модератор", 5: "Админ",
                     6: "С. Админ", 7: "Спонсор", 13: "Гл.Модератор"}
 
@@ -690,11 +671,8 @@ def _remember_error(context: str, exc):
     })
 
 
-async def ai_log(text: str, title: str = ""):
-    """
-    Все логи ИИ уходят в AI_LOG_CHANNEL_ID (и в консоль).
-    Отправляем эмбедом с чёрной полосой — как в первом фото.
-    """
+async def ai_log(text: str):
+    """Все логи ИИ уходят в AI_LOG_CHANNEL_ID (и в консоль)."""
     log(f"🤖 {text}")
     if not AI_LOG_CHANNEL_ID:
         return
@@ -704,22 +682,9 @@ async def ai_log(text: str, title: str = ""):
         channel = None
     if channel is None:
         return
-    # Если заголовок не передан — берём первую строку текста
-    if not title:
-        title = (text.split("\n", 1)[0] or "Лог ИИ")[:250]
-    # Описание — весь текст (или без первой строки)
-    description = text if len(text) <= 4000 else text[:4000] + "…"
-    embed = discord.Embed(
-        title=title,
-        description=description,
-        color=AI_EMBED_COLOR,
-        timestamp=now_utc(),
-    )
-    embed.set_footer(text="Quantum • AI Logs")
-    try:
-        await safe_send(channel, embed=embed)
-    except Exception as e:
-        log(f"⚠️ не отправил эмбед ИИ: {e}")
+    # suppress_embeds: без него Discord подтягивает превью ссылок
+    # (например, огромную карточку cs2red.ru на каждой строке с URL).
+    await safe_send(channel, text[:1900], suppress_embeds=True)
 
 
 async def ai_log_embed(title: str, description: str, footer: str = ""):
@@ -760,8 +725,7 @@ def _bot_stats_line() -> str:
         links_count = len(links_store.read())
     except Exception:
         links_count = 0
-    ws = bot.latency * 1000 if bot.is_ready() else 0
-    return (f"Quantum • аптайм {uptime} • WS {ws:.0f} мс • "
+    return (f"Quantum • аптайм {uptime} • WS {bot.latency * 1000:.0f} мс • "
             f"привязок {links_count} • задач {running}/5 • ошибок в буфере {len(_error_ring)}")
 
 
@@ -813,18 +777,12 @@ async def safe_send(target, *args, retries: int = 5, **kwargs):
     Отправка с retry. Уважает:
     - Discord 429 (rate-limit) — ждёт retry_after
     - Cloudflare 429 (HTML-заглушка) — ждёт 90 секунд
-    - Forbidden (403) — не повторяет, сразу выходит
     """
     await _rate_limit_send()
     last_exc = None
     for attempt in range(retries):
         try:
             return await target.send(*args, **kwargs)
-        except discord.Forbidden as e:
-            # Нет прав на отправку в этот канал — retry не поможет.
-            log(f"❌ safe_send: нет прав на отправку в "
-                f"{getattr(target, 'id', '?')}: {e}")
-            return None
         except discord.HTTPException as e:
             last_exc = e
             if e.status == 429:
@@ -921,34 +879,24 @@ class API:
         """Админка отдавала 403 — ждём, пока обновят cookie, и не тратим запросы."""
         return time.time() < self._auth_block_until
 
-    def _note_403(self, url: str, body: str = ""):
+    def _note_403(self, url: str):
         """
-        403 почти всегда означает протухшие cookie админки или блокировку Cloudflare.
+        403 почти всегда означает протухшие cookie админки.
 
-        Логируем тело ответа — по нему видно, Cloudflare это (HTML с "Just a moment...",
-        "cf-ray") или реальный отказ API (JSON с ошибкой).
+        Раньше каждая такая ошибка писалась в лог отдельной строкой, и при
+        обходе 130 привязок лог заливался сотнями одинаковых строк. Теперь
+        пишем не чаще раза в минуту и ставим паузу на админские запросы.
         """
         now = time.time()
         self._403_count += 1
         if "/admin/" in url:
             self._auth_block_until = now + CS2RED_AUTH_BLOCK_SECONDS
-
-        # Логируем тело 403 — оно покажет причину
-        if body:
-            snippet = body[:300].replace("\n", " ").replace("\r", "")
-            log(f"🔴 403 body от {url}: {snippet}")
-
         if now - self._last_403_log > 60:
             self._last_403_log = now
-            low = body.lower()
-            if "cf-ray" in low or "cloudflare" in low or "just a moment" in low:
-                hint = "Cloudflare (IP Render заблокирован)"
-            elif body.startswith("{") or body.startswith("["):
-                hint = "API вернул JSON-ошибку (проверь cookie/права)"
-            else:
-                hint = "неизвестно (смотри тело выше)"
             log(f"🔴 403 на {url} (всего {self._403_count} раз за сессию). "
-                f"Похоже на: {hint}")
+                f"Скорее всего протухли cookie админки cs2red — обнови "
+                f"CS2RED_TOKEN, CS2RED_BH, CS2RED_YASC, CS2RED_BROWSER_ID "
+                f"и CS2RED_YANDEXUID в Render")
 
     async def _get_json(self, url, params=None, force: bool = False):
         if not self.session:
@@ -961,8 +909,7 @@ class API:
                     async with self.session.get(url, params=params) as r:
                         self.last_status = r.status
                         if r.status == 403:
-                            body = await r.text()
-                            self._note_403(url, body)
+                            self._note_403(url)
                             return None
                         if r.status == 429:
                             await asyncio.sleep(2)
@@ -1916,7 +1863,6 @@ class TempBanModal(discord.ui.Modal, title="Запрет"):
         await i.response.send_message(f"🚫 <@{self.tid}> запрет на {hours} ч.")
         await log_to_channel(i.client, f"🚫 temp <@{self.tid}> {hours}ч от {i.user.mention}")
 
-
 # ============================================================
 # КАРТОЧКА ЗАЯВКИ (вид как в канале заявок)
 # ============================================================
@@ -2141,10 +2087,6 @@ class MyBot(commands.Bot):
             self.add_view(ClanView())
             log("✅ ClanView добавлен (заявки живут после рестарта)")
 
-            # Постоянная панель управления: работает после перезапуска.
-            self.add_view(ControlPanel())
-            log("✅ ControlPanel добавлен (панель управления)")
-
             auto_sync.start()
             activity_tracker.start()
 
@@ -2170,286 +2112,6 @@ class MyBot(commands.Bot):
 
 
 bot = MyBot()
-
-
-# ============================================================
-# ПАНЕЛЬ УПРАВЛЕНИЯ
-# ============================================================
-class ControlPanel(discord.ui.View):
-    """Постоянная панель управления ботом с чёрной полосой."""
-
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    def build_embed(self) -> discord.Embed:
-        """Собирает эмбед с текущим состоянием."""
-        ws = bot.latency * 1000 if bot.is_ready() else 0
-        up = int(time.time() - BOT_START_TIME)
-        d, r = divmod(up, 86400)
-        h, r = divmod(r, 3600)
-        m, s = divmod(r, 60)
-        us = (f"{d} д. {h} ч." if d else
-              f"{h} ч. {m} мин." if h else
-              f"{m} мин. {s} сек." if m else f"{s} сек.")
-
-        e = discord.Embed(
-            title="🎛️ Панель управления Quantum",
-            description="Управление ботом клана TALENT. Кнопки ниже.",
-            color=AI_EMBED_COLOR,
-            timestamp=now_utc(),
-        )
-        e.add_field(name="⏱ Аптайм", value=f"`{us}`", inline=True)
-        e.add_field(name="📡 WS", value=f"`{ws:.0f} мс`", inline=True)
-        e.add_field(name="🍪 Cookies", value=f"`{len(CS2RED_COOKIES)}`", inline=True)
-        e.add_field(name="🔗 Привязок",
-                    value=f"`{len(links_store.read())}`", inline=True)
-        e.add_field(name="📁 Заявок",
-                    value=f"`{len(votes_store.read())}`", inline=True)
-        e.add_field(name="⚠️ Ошибок",
-                    value=f"`{len(_error_ring)}`", inline=True)
-        e.add_field(name="🤖 ИИ",
-                    value=(ai_client.status_line()[:200] if ai_client else "выключен"),
-                    inline=False)
-        e.add_field(name="📚 Правила",
-                    value=(rules_base.status_line()[:200] if rules_base else "нет модуля"),
-                    inline=False)
-        e.add_field(name="☁️ GitHub",
-                    value=(github_sync.status_line()[:200] if github_sync else "не загружен"),
-                    inline=False)
-        e.set_footer(text=f"Quantum • {utc_stamp()}")
-        if bot.user:
-            e.set_thumbnail(url=bot.user.display_avatar.url)
-        return e
-
-    @discord.ui.button(label="🔗 Привязать всех", style=discord.ButtonStyle.success,
-                       custom_id="panel_link_all", row=0)
-    async def link_all_btn(self, i, b):
-        """
-        Массовая привязка Discord ↔ SteamID.
-
-        Логика:
-          1. Проходим по всем участникам Discord-сервера.
-          2. Берём Discord username (member.name) — например, ddkkx.
-          3. Ищем его через /api/admin/users?search=<username>.
-          4. 0 аккаунтов → в канал ручного разбора «не найдено».
-          5. 1 аккаунт  → привязываем автоматически + выдаём роли.
-          6. 2+ аккаунта → в канал ручного разбора «несколько аккаунтов».
-        """
-        if not is_moderator(i.user.id, i.guild):
-            await i.response.send_message("❌ Нет доступа.", ephemeral=True)
-            return
-        await i.response.defer(ephemeral=True)
-
-        MANUAL_CHANNEL = 1555204495682568202
-        links = links_store.read()
-        guild = i.guild
-
-        added = []
-        already = []
-        not_found = []
-        multiple = []
-        errors = []
-
-        for member in guild.members:
-            if member.bot:
-                continue
-            if str(member.id) in links:
-                already.append(member.display_name)
-                continue
-
-            username = (member.name or "").strip()
-            if not username:
-                continue
-
-            try:
-                data = await api._get_json(
-                    "https://cs2red.ru/api/admin/users",
-                    params={"begin": 0, "count": 10, "search": username}
-                )
-            except Exception as e:
-                errors.append(f"{member.display_name} (`{username}`): {e}")
-                continue
-            finally:
-                await asyncio.sleep(REQUEST_DELAY)
-
-            if not data or not data.get("success"):
-                not_found.append(f"{member.display_name} (`{username}`)")
-                continue
-
-            users = data.get("users") or []
-            exact = [u for u in users
-                     if str(u.get("nick", "")).lower() == username.lower()]
-            if not exact:
-                exact = users
-
-            if not exact:
-                not_found.append(f"{member.display_name} (`{username}`)")
-                continue
-
-            if len(exact) > 1:
-                accs = ", ".join(
-                    f"`{u.get('nick', '?')}` (`{u.get('steamid64', '?')}`)"
-                    for u in exact[:5]
-                )
-                multiple.append(
-                    f"{member.display_name} (`{username}`): {len(exact)} акк. → {accs}"
-                )
-                continue
-
-            steamid = str(exact[0].get("steamid64") or "")
-            if not steamid:
-                not_found.append(f"{member.display_name} (`{username}`) — нет SteamID")
-                continue
-
-            try:
-                await links_store.update(lambda d: d.update({str(member.id): steamid}))
-            except Exception as e:
-                errors.append(f"{member.display_name}: не сохранил — {e}")
-                continue
-
-            added.append(
-                f"✅ {member.display_name} (`{username}`) → `{steamid}` "
-                f"({exact[0].get('nick', '?')})"
-            )
-
-            try:
-                await sync_role_by_id(guild, member, steamid)
-                await sync_clan_role_by_id(guild, member, steamid)
-            except Exception as e:
-                log(f"⚠️ link_all: роли {member.display_name}: {e}")
-
-        if multiple or not_found or errors:
-            lines = [f"📋 **Требуют ручного разбора** — {utc_stamp()}\n"]
-            if multiple:
-                lines.append(f"⚠️ **Несколько аккаунтов** ({len(multiple)}):\n"
-                             + "\n".join(multiple[:20]) + "\n")
-            if not_found:
-                lines.append(f"❓ **Не найдено на cs2red** ({len(not_found)}):\n"
-                             + "\n".join(not_found[:30]) + "\n")
-            if errors:
-                lines.append(f"🔴 **Ошибки** ({len(errors)}):\n"
-                             + "\n".join(errors[:15]))
-            text_manual = "\n".join(lines)
-
-            try:
-                ch = bot.get_channel(MANUAL_CHANNEL)
-                if ch is None:
-                    log(f"⚠️ link_all: канал {MANUAL_CHANNEL} не найден")
-                else:
-                    for k in range(0, len(text_manual), 1900):
-                        await safe_send(ch, text_manual[k:k + 1900])
-                        await asyncio.sleep(1)
-            except Exception as e:
-                log(f"⚠️ link_all: отчёт: {e}")
-
-        text = (
-            f"📊 **Массовая привязка завершена**\n"
-            f"✅ Привязано: **{len(added)}**\n"
-            f"ℹ️ Уже привязано: **{len(already)}**\n"
-            f"⚠️ Несколько аккаунтов: **{len(multiple)}**\n"
-            f"❓ Не найдено: **{len(not_found)}**\n"
-            f"🔴 Ошибок: **{len(errors)}**\n\n"
-        )
-        if added:
-            text += "**Последние привязанные:**\n" + "\n".join(added[-5:]) + "\n\n"
-        text += f"📋 Подробный отчёт — в <#{MANUAL_CHANNEL}>"
-
-        await i.followup.send(text[:1900], ephemeral=True)
-        await ai_log(f"🔗 Массовая привязка: +{len(added)}, уже {len(already)}, "
-                     f"мульти {len(multiple)}, не найдено {len(not_found)}, "
-                     f"ошибок {len(errors)}")
-
-    @discord.ui.button(label="🔄 Синхронизация", style=discord.ButtonStyle.primary,
-                       custom_id="panel_sync", row=0)
-    async def sync_btn(self, i, b):
-        if not is_moderator(i.user.id, i.guild):
-            await i.response.send_message("❌ Нет доступа.", ephemeral=True)
-            return
-        await i.response.defer(ephemeral=True)
-        try:
-            links = links_store.read()
-            guild = i.guild
-            dups = duplicate_steam_ids()
-            count = 0
-            for did, sid in links.items():
-                if api.auth_blocked():
-                    break
-                if str(sid) in dups:
-                    continue
-                m = guild.get_member(int(did))
-                if m is None:
-                    continue
-                try:
-                    await sync_role_by_id(guild, m, sid)
-                    await sync_clan_role_by_id(guild, m, sid)
-                    count += 1
-                except Exception as e:
-                    await log_error(i.client, f"panel.sync:{did}", e)
-                await asyncio.sleep(REQUEST_DELAY)
-            await i.followup.send(f"✅ Синхронизировано: {count}", ephemeral=True)
-        except Exception as e:
-            await log_error(i.client, "panel.sync", e)
-            await i.followup.send(f"❌ Ошибка: {str(e)[:200]}", ephemeral=True)
-
-    @discord.ui.button(label="📚 Обновить правила", style=discord.ButtonStyle.primary,
-                       custom_id="panel_rules", row=1)
-    async def rules_btn(self, i, b):
-        if not is_moderator(i.user.id, i.guild):
-            await i.response.send_message("❌ Нет доступа.", ephemeral=True)
-            return
-        await i.response.defer(ephemeral=True)
-        status = await refresh_rules_once()
-        await ai_log(f"📚 Правила обновлены вручную: {status}")
-        await i.followup.send(f"✅ {status}", ephemeral=True)
-
-    @discord.ui.button(label="☁️ Выгрузить в GitHub", style=discord.ButtonStyle.primary,
-                       custom_id="panel_github", row=1)
-    async def github_btn(self, i, b):
-        if not is_moderator(i.user.id, i.guild):
-            await i.response.send_message("❌ Нет доступа.", ephemeral=True)
-            return
-        await i.response.defer(ephemeral=True)
-        if github_sync is None or not github_sync.enabled:
-            await i.followup.send("❌ GitHub не настроен.", ephemeral=True)
-            return
-        pushed, status = await github_sync.push(
-            api.session or _NoSession(), GITHUB_SYNC_FILES, DATA_DIR)
-        await i.followup.send(f"✅ {status}", ephemeral=True)
-
-    @discord.ui.button(label="🩺 Health", style=discord.ButtonStyle.secondary,
-                       custom_id="panel_health", row=2)
-    async def health_btn(self, i, b):
-        await i.response.defer(ephemeral=True)
-        text = (f"**Аптайм:** {int(time.time() - BOT_START_TIME)} сек\n"
-                f"**Cookies:** {len(CS2RED_COOKIES)}\n"
-                f"**Привязок:** {len(links_store.read())}\n"
-                f"**Заявок:** {len(votes_store.read())}\n"
-                f"**Ошибок в буфере:** {len(_error_ring)}\n"
-                f"**ИИ:** {ai_client.status_line() if ai_client else 'выкл'}\n"
-                f"**Правила:** {rules_base.status_line() if rules_base else 'нет'}\n"
-                f"**GitHub:** {github_sync.status_line() if github_sync else 'нет'}")
-        await i.followup.send(text[:1900], ephemeral=True)
-
-    @discord.ui.button(label="📊 Статус ИИ", style=discord.ButtonStyle.secondary,
-                       custom_id="panel_ai", row=2)
-    async def ai_btn(self, i, b):
-        await i.response.defer(ephemeral=True)
-        await i.followup.send(ai_status_text()[:1900], ephemeral=True)
-
-    @discord.ui.button(label="🔄 Обновить панель", style=discord.ButtonStyle.secondary,
-                       custom_id="panel_refresh", row=2)
-    async def refresh_btn(self, i, b):
-        await i.response.edit_message(embed=self.build_embed(), view=self)
-
-
-@bot.tree.command(name="panel", description="Панель управления ботом (только для модераторов)")
-async def panel_cmd(i: discord.Interaction):
-    if not is_moderator(i.user.id, i.guild):
-        await i.response.send_message("❌ Нет доступа.", ephemeral=True)
-        return
-    await i.response.defer(ephemeral=False)
-    view = ControlPanel()
-    await safe_send(i.followup, embed=view.build_embed(), view=view)
 
 
 @bot.tree.error
@@ -3140,7 +2802,7 @@ async def lookup(i, member: discord.Member):
 # ============================================================
 def build_ping_embed() -> discord.Embed:
     """Общий эмбед для /ping и !ping — включая состояние ИИ и ошибок."""
-    ws = bot.latency * 1000 if bot.is_ready() else 0
+    ws = bot.latency * 1000
     up = int(time.time() - BOT_START_TIME)
     d, r = divmod(up, 86400)
     h, r = divmod(r, 3600)
@@ -3201,7 +2863,7 @@ async def health(i: discord.Interaction):
         else:
             fail_count += 1
 
-    ws_ms = bot.latency * 1000 if bot.is_ready() else 0
+    ws_ms = bot.latency * 1000
     add("🌐", "Discord WebSocket", f"`{ws_ms:.0f} мс`", ws_ms < 500)
 
     guild = i.guild
@@ -3910,9 +3572,7 @@ async def activity_tracker():
         db = players_store.read()
         n2s = {p.get("cs2red_nick"): s for s, p in db.items() if p.get("cs2red_nick")}
         seen = seen_store.read()
-        # _seeded больше НЕ удаляем через pop: если save не выполнится,
-        # ключ потеряется и бот заново начнёт тянуть ники через API.
-        if not seen.get("_seeded"):
+        if not seen.pop("_seeded", None):
             for sid in links.values():
                 if sid in n2s:
                     continue
@@ -3921,7 +3581,6 @@ async def activity_tracker():
                     n2s[u["nick"]] = sid
                     db.setdefault(sid, {})["cs2red_nick"] = u["nick"]
             await players_store.save(db)
-            seen["_seeded"] = True
         # Чистим seen от ников, которых нет в текущем онлайне, иначе файл растёт вечно.
         for nick in list(seen):
             if nick != "_seeded" and nick not in online:
@@ -3946,6 +3605,7 @@ async def activity_tracker():
             p.update(activity=a, discord_name=p.get("discord_name") or nick, updated_at=now)
             db[sid] = p
             matched += 1
+        seen["_seeded"] = True
         if matched:
             await players_store.save(db)
             log(f"🕐 Трекер: +{matched}")
@@ -4201,8 +3861,7 @@ async def before_rules_refresher():
 
 def _bot_diagnostics() -> str:
     """Сжатая сводка состояния бота — уходит в промпт ИИ вместе с ошибками."""
-    lines = [f"аптайм {int(time.time() - BOT_START_TIME)} c, "
-             f"WS {(bot.latency * 1000 if bot.is_ready() else 0):.0f} мс"]
+    lines = [f"аптайм {int(time.time() - BOT_START_TIME)} c, WS {bot.latency * 1000:.0f} мс"]
     for name, task_obj in (("auto_sync", auto_sync), ("activity_tracker", activity_tracker),
                            ("rules_refresher", rules_refresher)):
         try:
@@ -4277,6 +3936,7 @@ async def before_ai_error_watcher():
 
 _gh_log_last = 0.0
 _gh_log_saved = 0
+_gh_log_skipped: set = set()
 
 
 @tasks.loop(seconds=GITHUB_PUSH_INTERVAL_SECONDS)
@@ -4285,8 +3945,8 @@ async def data_push_loop():
     Выгружает изменённые базы в GitHub.
 
     В консоль Render пишем каждую выгрузку, а в канал — не чаще раза в
-    GITHUB_LOG_INTERVAL_SECONDS. Убрано сообщение про GITHUB_SYNC_FILES:
-    оно повторялось каждый час и засоряло лог.
+    GITHUB_LOG_INTERVAL_SECONDS. Раньше строка уходила в канал на каждое
+    изменение, а players_db.json и seen.json меняются каждые 5 минут.
     """
     global _gh_log_last, _gh_log_saved
     if github_sync is None or not github_sync.enabled or not _data_dirty:
@@ -4294,7 +3954,9 @@ async def data_push_loop():
 
     allowed = set(GITHUB_SYNC_FILES)
     files = sorted(_data_dirty & allowed)
+    blocked = sorted(_data_dirty - allowed)
     _data_dirty.clear()
+    _gh_log_skipped.update(blocked)
     if not files:
         return
 
@@ -4314,12 +3976,18 @@ async def data_push_loop():
         return
 
     _gh_log_last = now
-    if _gh_log_saved or failed:
-        msg = f"☁️ GitHub: сохранено файлов {_gh_log_saved}" if _gh_log_saved else "☁️ GitHub"
-        if failed:
-            msg += f"; {status}"
-        await ai_log(msg)
+    parts = []
+    if _gh_log_saved:
+        parts.append(f"сохранено файлов: {_gh_log_saved}")
+    if _gh_log_skipped:
+        parts.append("не выгружаю (нет в GITHUB_SYNC_FILES): "
+                     + ", ".join(sorted(_gh_log_skipped)))
+    if failed:
+        parts.append(status)
+    if parts:
+        await ai_log("☁️ GitHub: " + "; ".join(parts))
     _gh_log_saved = 0
+    _gh_log_skipped.clear()
 
 
 @data_push_loop.before_loop
