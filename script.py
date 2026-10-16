@@ -1,5 +1,5 @@
 """
-Quantum - бот клана (v26: полный, все кнопки в панели)
+Quantum - бот клана (v27: fix Brotli, все кнопки в панели, /sync вручную)
 """
 import os
 import re
@@ -233,7 +233,6 @@ CS2RED_AUTH_BLOCK_SECONDS = max(30, _env_int("CS2RED_AUTH_BLOCK_SECONDS", 600))
 # ЗАДЕРЖКИ
 # ============================================================
 SYNC_INTERVAL_MINUTES = max(1, _env_int("SYNC_INTERVAL_MINUTES", 360))
-
 ACTIVITY_TRACK_SECONDS = max(60, _env_int("ACTIVITY_TRACK_SECONDS", 900))
 ACTIVITY_TRACK_DELTA = 300
 CLANS_CACHE_TTL = 300
@@ -291,13 +290,17 @@ for _cookie_name, _cookie_value in _cookie_env.items():
     if _cookie_value and not CS2RED_COOKIES.get(_cookie_name):
         CS2RED_COOKIES[_cookie_name] = _cookie_value
 
+# ВАЖНО: убран "br" из Accept-Encoding.
+# cs2red возвращает ответы, сжатые Brotli, а aiohttp не умеет распаковывать
+# Brotli без отдельной библиотеки — получалась 400: "Can not decode content-encoding: brotli (br)".
+# Без "br" сервер отдаёт gzip/deflate, которые aiohttp понимает из коробки.
 CS2RED_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                   "AppleWebKit/537.36 (KHTML, like Gecko) "
                   "Chrome/154.0.0.0 Safari/537.36 Brave/154.0.0.0",
     "Accept": "*/*",
     "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
-    "Accept-Encoding": "gzip, deflate, br",
+    "Accept-Encoding": "gzip, deflate",
     "Referer": "https://cs2red.ru/admin",
     "Origin": "https://cs2red.ru",
     "X-Requested-With": "XMLHttpRequest",
@@ -773,6 +776,8 @@ class API:
             family=2, ttl_dns_cache=300, limit=8,
             force_close=False, enable_cleanup_closed=True,
         )
+        # ВАЖНО: auto_decompress=True (по умолчанию). С gzip/deflate aiohttp
+        # справляется сам, Brotli не нужен — мы его отключили в заголовках.
         self.session = aiohttp.ClientSession(
             headers=CS2RED_HEADERS,
             cookies=CS2RED_COOKIES or None,
@@ -1934,7 +1939,7 @@ bot = MyBot()
 
 
 # ============================================================
-# ПАНЕЛЬ УПРАВЛЕНИЯ (7 КНОПОК)
+# ПАНЕЛЬ УПРАВЛЕНИЯ
 # ============================================================
 class ControlPanel(discord.ui.View):
     """Постоянная панель управления ботом с чёрной полосой."""
@@ -1981,23 +1986,9 @@ class ControlPanel(discord.ui.View):
             e.set_thumbnail(url=bot.user.display_avatar.url)
         return e
 
-    # ----------------- КНОПКА 1: ПРИВЯЗАТЬ ВСЕХ -----------------
     @discord.ui.button(label="🔗 Привязать всех", style=discord.ButtonStyle.success,
                        custom_id="panel_link_all", row=0)
     async def link_all_btn(self, i, b):
-        """
-        Массовая привязка Discord ↔ SteamID.
-
-        Логика:
-          1. Проходим по всем участникам Discord-сервера.
-          2. Берём Discord username (member.name) — например, ddkkx.
-          3. Ищем его через /api/admin/users?search=<username>.
-          4. 0 аккаунтов → в канал ручного разбора «не найдено».
-          5. 1 аккаунт  → привязываем автоматически + выдаём роли.
-          6. 2+ аккаунта → в канал ручного разбора «несколько аккаунтов».
-
-        Задержка LINK_ALL_DELAY (по умолчанию 20 сек) между запросами.
-        """
         if not is_moderator(i.user.id, i.guild):
             await i.response.send_message("❌ Нет доступа.", ephemeral=True)
             return
@@ -2005,8 +1996,7 @@ class ControlPanel(discord.ui.View):
         await i.response.defer(ephemeral=True)
         await safe_send(i.followup, "⏳ Массовая привязка запущена. "
                                     f"Задержка между запросами: {LINK_ALL_DELAY} сек. "
-                                    f"Это займёт продолжительное время — "
-                                    f"отчёт придёт в канал ручного разбора.", ephemeral=True)
+                                    f"Отчёт придёт в канал ручного разбора.", ephemeral=True)
 
         MANUAL_CHANNEL = UNLINKED_CHANNEL_ID
         links = links_store.read()
@@ -2152,7 +2142,6 @@ class ControlPanel(discord.ui.View):
                      f"мульти {len(multiple)}, не найдено {len(not_found)}, "
                      f"ошибок {len(errors)}")
 
-    # ----------------- КНОПКА 2: СИНХРОНИЗАЦИЯ -----------------
     @discord.ui.button(label="🔄 Синхронизация", style=discord.ButtonStyle.primary,
                        custom_id="panel_sync", row=0)
     async def sync_btn(self, i, b):
@@ -2185,7 +2174,6 @@ class ControlPanel(discord.ui.View):
             await log_error(i.client, "panel.sync", e)
             await i.followup.send(f"❌ Ошибка: {str(e)[:200]}", ephemeral=True)
 
-    # ----------------- КНОПКА 3: ОБНОВИТЬ ПРАВИЛА -----------------
     @discord.ui.button(label="📚 Обновить правила", style=discord.ButtonStyle.primary,
                        custom_id="panel_rules", row=1)
     async def rules_btn(self, i, b):
@@ -2197,7 +2185,6 @@ class ControlPanel(discord.ui.View):
         await ai_log(f"📚 Правила обновлены вручную: {status}")
         await i.followup.send(f"✅ {status}", ephemeral=True)
 
-    # ----------------- КНОПКА 4: ВЫГРУЗИТЬ В GITHUB -----------------
     @discord.ui.button(label="☁️ Выгрузить в GitHub", style=discord.ButtonStyle.primary,
                        custom_id="panel_github", row=1)
     async def github_btn(self, i, b):
@@ -2212,7 +2199,6 @@ class ControlPanel(discord.ui.View):
             api.session or _NoSession(), GITHUB_SYNC_FILES, DATA_DIR)
         await i.followup.send(f"✅ {status}", ephemeral=True)
 
-    # ----------------- КНОПКА 5: HEALTH -----------------
     @discord.ui.button(label="🩺 Health", style=discord.ButtonStyle.secondary,
                        custom_id="panel_health", row=2)
     async def health_btn(self, i, b):
@@ -2227,14 +2213,12 @@ class ControlPanel(discord.ui.View):
                 f"**GitHub:** {github_sync.status_line() if github_sync else 'нет'}")
         await i.followup.send(text[:1900], ephemeral=True)
 
-    # ----------------- КНОПКА 6: СТАТУС ИИ -----------------
     @discord.ui.button(label="📊 Статус ИИ", style=discord.ButtonStyle.secondary,
                        custom_id="panel_ai", row=2)
     async def ai_btn(self, i, b):
         await i.response.defer(ephemeral=True)
         await i.followup.send(ai_status_text()[:1900], ephemeral=True)
 
-    # ----------------- КНОПКА 7: ОБНОВИТЬ ПАНЕЛЬ -----------------
     @discord.ui.button(label="🔄 Обновить панель", style=discord.ButtonStyle.secondary,
                        custom_id="panel_refresh", row=2)
     async def refresh_btn(self, i, b):
