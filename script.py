@@ -1,5 +1,5 @@
 """
-Quantum - бот клана (v19: Brave UA, логирование 403, фиксы)
+Quantum - бот клана (v20: панель управления, эмбед-логи, Brave UA)
 """
 import os
 import re
@@ -188,6 +188,13 @@ THREADS_CHANNEL_ID = _env_int("THREADS_CHANNEL_ID", 1236678127778795660)
 DB_CHANNEL_ID = _env_int("DB_CHANNEL_ID", 1554883485834149888)
 ERROR_LOG_CHANNEL_ID = _env_int("ERROR_LOG_CHANNEL_ID", 1511463623703265361)
 
+# Куда идут ВСЕ логи ИИ (эмбеды).
+AI_LOG_CHANNEL_ID = _env_int("AI_LOG_CHANNEL_ID",
+                             _env_int("AI_REPORT_CHANNEL_ID", 1556427610160889907))
+
+# Канал для панели управления.
+PANEL_CHANNEL_ID = _env_int("PANEL_CHANNEL_ID", 1554796338661826660)
+
 ALLOWED_ROLE_ID = _env_int("ALLOWED_ROLE_ID", 0)
 # Заместители: могут закрыть заявку единолично, без второго голоса.
 # Ролей может быть несколько — перечисли через запятую:
@@ -236,10 +243,6 @@ GEMINI_API_KEY = (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or 
 AI_ENABLED = _env_int("AI_ENABLED", 1) == 1
 AI_MODEL = (os.getenv("AI_MODEL") or "").strip()
 AI_API_URL = (os.getenv("AI_API_URL") or "").strip()
-# Сюда идут ВСЕ логи ИИ: запросы, ответы, ошибки, разборы ошибок, обновление правил.
-# Поддерживаем оба имени: в Render у тебя уже есть AI_REPORT_CHANNEL_ID.
-AI_LOG_CHANNEL_ID = _env_int("AI_LOG_CHANNEL_ID",
-                             _env_int("AI_REPORT_CHANNEL_ID", 1554796338661826660))
 # gemini | openai | auto (auto: Gemini, если есть ключ, иначе OpenAI-совместимый)
 AI_PROVIDER = (os.getenv("AI_PROVIDER") or "auto").strip().lower()
 # Для провайдера openai: базовый URL (LLM7, OpenRouter, свой прокси)
@@ -276,7 +279,8 @@ GITHUB_LOG_INTERVAL_SECONDS = max(60, _env_int("GITHUB_LOG_INTERVAL_SECONDS", 36
 ACTIVITY_GOAL_HOURS = 8
 ACTIVITY_MIN_HOURS = 8
 APPLY_EMBED_COLOR = 0x2B2D31
-AI_EMBED_COLOR = 0x5865F2
+# Чёрная полоса для всех логов и панели (было 0x5865F2 — синяя).
+AI_EMBED_COLOR = 0x000000
 
 BOT_START_TIME = time.time()
 
@@ -686,8 +690,11 @@ def _remember_error(context: str, exc):
     })
 
 
-async def ai_log(text: str):
-    """Все логи ИИ уходят в AI_LOG_CHANNEL_ID (и в консоль)."""
+async def ai_log(text: str, title: str = ""):
+    """
+    Все логи ИИ уходят в AI_LOG_CHANNEL_ID (и в консоль).
+    Отправляем эмбедом с чёрной полосой — как в первом фото.
+    """
     log(f"🤖 {text}")
     if not AI_LOG_CHANNEL_ID:
         return
@@ -697,9 +704,22 @@ async def ai_log(text: str):
         channel = None
     if channel is None:
         return
-    # suppress_embeds: без него Discord подтягивает превью ссылок
-    # (например, огромную карточку cs2red.ru на каждой строке с URL).
-    await safe_send(channel, text[:1900], suppress_embeds=True)
+    # Если заголовок не передан — берём первую строку текста
+    if not title:
+        title = (text.split("\n", 1)[0] or "Лог ИИ")[:250]
+    # Описание — весь текст (или без первой строки)
+    description = text if len(text) <= 4000 else text[:4000] + "…"
+    embed = discord.Embed(
+        title=title,
+        description=description,
+        color=AI_EMBED_COLOR,
+        timestamp=now_utc(),
+    )
+    embed.set_footer(text="Quantum • AI Logs")
+    try:
+        await safe_send(channel, embed=embed)
+    except Exception as e:
+        log(f"⚠️ не отправил эмбед ИИ: {e}")
 
 
 async def ai_log_embed(title: str, description: str, footer: str = ""):
@@ -1896,6 +1916,149 @@ class TempBanModal(discord.ui.Modal, title="Запрет"):
         await i.response.send_message(f"🚫 <@{self.tid}> запрет на {hours} ч.")
         await log_to_channel(i.client, f"🚫 temp <@{self.tid}> {hours}ч от {i.user.mention}")
 
+
+# ============================================================
+# ПАНЕЛЬ УПРАВЛЕНИЯ
+# ============================================================
+class ControlPanel(discord.ui.View):
+    """Постоянная панель управления ботом с чёрной полосой."""
+
+    def __init__(self):
+        super().__init__(timeout=None)  # вечная
+
+    def build_embed(self) -> discord.Embed:
+        """Собирает эмбед с текущим состоянием."""
+        ws = bot.latency * 1000 if bot.is_ready() else 0
+        up = int(time.time() - BOT_START_TIME)
+        d, r = divmod(up, 86400)
+        h, r = divmod(r, 3600)
+        m, s = divmod(r, 60)
+        us = (f"{d} д. {h} ч." if d else
+              f"{h} ч. {m} мин." if h else
+              f"{m} мин. {s} сек." if m else f"{s} сек.")
+
+        e = discord.Embed(
+            title="🎛️ Панель управления Quantum",
+            description="Управление ботом клана TALENT. Кнопки ниже.",
+            color=AI_EMBED_COLOR,
+            timestamp=now_utc(),
+        )
+        e.add_field(name="⏱ Аптайм", value=f"`{us}`", inline=True)
+        e.add_field(name="📡 WS", value=f"`{ws:.0f} мс`", inline=True)
+        e.add_field(name="🍪 Cookies", value=f"`{len(CS2RED_COOKIES)}`", inline=True)
+        e.add_field(name="🔗 Привязок",
+                    value=f"`{len(links_store.read())}`", inline=True)
+        e.add_field(name="📁 Заявок",
+                    value=f"`{len(votes_store.read())}`", inline=True)
+        e.add_field(name="⚠️ Ошибок",
+                    value=f"`{len(_error_ring)}`", inline=True)
+        e.add_field(name="🤖 ИИ",
+                    value=(ai_client.status_line()[:200] if ai_client else "выключен"),
+                    inline=False)
+        e.add_field(name="📚 Правила",
+                    value=(rules_base.status_line()[:200] if rules_base else "нет модуля"),
+                    inline=False)
+        e.add_field(name="☁️ GitHub",
+                    value=(github_sync.status_line()[:200] if github_sync else "не загружен"),
+                    inline=False)
+        e.set_footer(text=f"Quantum • {utc_stamp()}")
+        if bot.user:
+            e.set_thumbnail(url=bot.user.display_avatar.url)
+        return e
+
+    @discord.ui.button(label="🔄 Синхронизация", style=discord.ButtonStyle.primary,
+                       custom_id="panel_sync", row=0)
+    async def sync_btn(self, i, b):
+        if not is_moderator(i.user.id, i.guild):
+            await i.response.send_message("❌ Нет доступа.", ephemeral=True)
+            return
+        await i.response.defer(ephemeral=True)
+        try:
+            links = links_store.read()
+            guild = i.guild
+            dups = duplicate_steam_ids()
+            count = 0
+            for did, sid in links.items():
+                if api.auth_blocked():
+                    break
+                if str(sid) in dups:
+                    continue
+                m = guild.get_member(int(did))
+                if m is None:
+                    continue
+                try:
+                    await sync_role_by_id(guild, m, sid)
+                    await sync_clan_role_by_id(guild, m, sid)
+                    count += 1
+                except Exception as e:
+                    await log_error(i.client, f"panel.sync:{did}", e)
+                await asyncio.sleep(REQUEST_DELAY)
+            await i.followup.send(f"✅ Синхронизировано: {count}", ephemeral=True)
+        except Exception as e:
+            await log_error(i.client, "panel.sync", e)
+            await i.followup.send(f"❌ Ошибка: {str(e)[:200]}", ephemeral=True)
+
+    @discord.ui.button(label="📚 Обновить правила", style=discord.ButtonStyle.primary,
+                       custom_id="panel_rules", row=0)
+    async def rules_btn(self, i, b):
+        if not is_moderator(i.user.id, i.guild):
+            await i.response.send_message("❌ Нет доступа.", ephemeral=True)
+            return
+        await i.response.defer(ephemeral=True)
+        status = await refresh_rules_once()
+        await ai_log(f"📚 Правила обновлены вручную: {status}")
+        await i.followup.send(f"✅ {status}", ephemeral=True)
+
+    @discord.ui.button(label="☁️ Выгрузить в GitHub", style=discord.ButtonStyle.primary,
+                       custom_id="panel_github", row=0)
+    async def github_btn(self, i, b):
+        if not is_moderator(i.user.id, i.guild):
+            await i.response.send_message("❌ Нет доступа.", ephemeral=True)
+            return
+        await i.response.defer(ephemeral=True)
+        if github_sync is None or not github_sync.enabled:
+            await i.followup.send("❌ GitHub не настроен.", ephemeral=True)
+            return
+        pushed, status = await github_sync.push(
+            api.session or _NoSession(), GITHUB_SYNC_FILES, DATA_DIR)
+        await i.followup.send(f"✅ {status}", ephemeral=True)
+
+    @discord.ui.button(label="🩺 Health", style=discord.ButtonStyle.secondary,
+                       custom_id="panel_health", row=1)
+    async def health_btn(self, i, b):
+        await i.response.defer(ephemeral=True)
+        text = (f"**Аптайм:** {int(time.time() - BOT_START_TIME)} сек\n"
+                f"**Cookies:** {len(CS2RED_COOKIES)}\n"
+                f"**Привязок:** {len(links_store.read())}\n"
+                f"**Заявок:** {len(votes_store.read())}\n"
+                f"**Ошибок в буфере:** {len(_error_ring)}\n"
+                f"**ИИ:** {ai_client.status_line() if ai_client else 'выкл'}\n"
+                f"**Правила:** {rules_base.status_line() if rules_base else 'нет'}\n"
+                f"**GitHub:** {github_sync.status_line() if github_sync else 'нет'}")
+        await i.followup.send(text[:1900], ephemeral=True)
+
+    @discord.ui.button(label="📊 Статус ИИ", style=discord.ButtonStyle.secondary,
+                       custom_id="panel_ai", row=1)
+    async def ai_btn(self, i, b):
+        await i.response.defer(ephemeral=True)
+        await i.followup.send(ai_status_text()[:1900], ephemeral=True)
+
+    @discord.ui.button(label="🔄 Обновить панель", style=discord.ButtonStyle.secondary,
+                       custom_id="panel_refresh", row=1)
+    async def refresh_btn(self, i, b):
+        await i.response.edit_message(embed=self.build_embed(), view=self)
+
+
+@bot.tree.command(name="panel", description="Панель управления ботом (только для модераторов)")
+async def panel_cmd(i: discord.Interaction):
+    if not is_moderator(i.user.id, i.guild):
+        await i.response.send_message("❌ Нет доступа.", ephemeral=True)
+        return
+    await i.response.defer(ephemeral=False)
+    view = ControlPanel()
+    await safe_send(i.followup, embed=view.build_embed(), view=view)
+
+
 # ============================================================
 # КАРТОЧКА ЗАЯВКИ (вид как в канале заявок)
 # ============================================================
@@ -2119,6 +2282,10 @@ class MyBot(commands.Bot):
             # работать после перезапуска, поэтому !setup нужен только один раз.
             self.add_view(ClanView())
             log("✅ ClanView добавлен (заявки живут после рестарта)")
+
+            # Постоянная панель управления: работает после перезапуска.
+            self.add_view(ControlPanel())
+            log("✅ ControlPanel добавлен (панель управления)")
 
             auto_sync.start()
             activity_tracker.start()
@@ -3616,7 +3783,8 @@ async def activity_tracker():
                     n2s[u["nick"]] = sid
                     db.setdefault(sid, {})["cs2red_nick"] = u["nick"]
             await players_store.save(db)
-            seen["_seeded"] = True        # Чистим seen от ников, которых нет в текущем онлайне, иначе файл растёт вечно.
+            seen["_seeded"] = True
+        # Чистим seen от ников, которых нет в текущем онлайне, иначе файл растёт вечно.
         for nick in list(seen):
             if nick != "_seeded" and nick not in online:
                 seen.pop(nick, None)
