@@ -1,5 +1,5 @@
 """
-Quantum - бот клана (v21: исправлен порядок ControlPanel, финальная версия)
+Quantum - бот клана (v22: финальная версия, все опечатки исправлены)
 """
 import os
 import re
@@ -3624,7 +3624,8 @@ async def rules_prefix(ctx, *, question: str = ""):
     left = _ai_cooldown_left(ctx.author.id)
     if left > 0:
         await safe_send(ctx.channel, f"⏱ {ctx.author.mention}, подожди {left:.0f} сек.")
-        return    _ai_ask_last[ctx.author.id] = time.time()
+        return
+    _ai_ask_last[ctx.author.id] = time.time()
     try:
         answer, logline = await answer_rules(question)
         await safe_send(ctx.channel, answer)
